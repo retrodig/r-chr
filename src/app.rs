@@ -50,6 +50,15 @@ pub struct RChrApp {
     drawing_color_idx: u8,
     /// アンドゥスタック: (タイルのバイトオフセット, 変更前の 16バイト)
     undo_stack: Vec<(usize, [u8; 16])>,
+
+    /// 開いているファイルのフルパス（上書き保存に使用）
+    file_path: Option<std::path::PathBuf>,
+    /// 元のファイルバイト列（CHR 部分を書き戻すために保持）
+    raw_file_data: Option<Vec<u8>>,
+    /// 未保存の変更があるか
+    is_modified: bool,
+    /// 未保存変更ありで閉じようとしたときの確認ダイアログ表示フラグ
+    show_close_dialog: bool,
 }
 
 impl Default for RChrApp {
@@ -66,6 +75,10 @@ impl Default for RChrApp {
             selected_tile: None,
             drawing_color_idx: 1,
             undo_stack: Vec::new(),
+            file_path: None,
+            raw_file_data: None,
+            is_modified: false,
+            show_close_dialog: false,
         }
     }
 }
@@ -93,12 +106,54 @@ impl eframe::App for RChrApp {
             self.texture_dirty = false;
         }
 
+        // ── ウィンドウ閉じるリクエストの処理
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.is_modified {
+                // 閉じるをキャンセルしてダイアログを出す
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.show_close_dialog = true;
+            }
+        }
+
+        // ── 未保存変更の確認ダイアログ
+        if self.show_close_dialog {
+            self.show_close_confirm_dialog(ctx);
+        }
+
+        // ── タイトルバー更新（未保存変更を * で表示）
+        let title = if self.is_modified {
+            format!(
+                "r-chr  *{}",
+                self.file_name.as_deref().unwrap_or("")
+            )
+        } else {
+            format!(
+                "r-chr  {}",
+                self.file_name.as_deref().unwrap_or("")
+            )
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+
         // ── メニューバー
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("ファイル", |ui| {
-                    if ui.button("開く…").clicked() {
+                    if ui.button("開く…  ⌘O").clicked() {
                         self.open_file();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    let can_save = self.file_path.is_some() && self.is_modified;
+                    if ui.add_enabled(can_save, egui::Button::new("保存  ⌘S")).clicked() {
+                        if let Err(e) = self.save_file() {
+                            self.error_msg = Some(e);
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("別名で保存…  ⌘⇧S").clicked() {
+                        if let Err(e) = self.save_file_as() {
+                            self.error_msg = Some(e);
+                        }
                         ui.close_menu();
                     }
                 });
@@ -229,6 +284,9 @@ impl RChrApp {
                     self.bank_offset = 0;
                     self.selected_tile = None;
                     self.undo_stack.clear();
+                    self.file_path = Some(path);
+                    self.raw_file_data = Some(data);
+                    self.is_modified = false;
                     self.rom = Some(rom);
                     self.texture_dirty = true;
                 }
@@ -443,6 +501,7 @@ impl RChrApp {
                 }
 
                 encode_dot(&mut rom.chr_rom[tile_offset..tile_offset + 16], px, py, color);
+                self.is_modified = true;
                 self.texture_dirty = true;
             }
         }
@@ -455,6 +514,105 @@ impl RChrApp {
             rom.chr_rom[offset..offset + 16].copy_from_slice(&saved);
             self.texture_dirty = true;
         }
+    }
+
+    // ── 保存 ──────────────────────────────────────────────────────
+
+    /// 現在のパスに上書き保存する
+    fn save_file(&mut self) -> Result<(), String> {
+        let path = self.file_path.clone().ok_or("保存先パスがありません")?;
+        self.write_to_path(&path)
+    }
+
+    /// ダイアログで保存先を選んで保存する
+    fn save_file_as(&mut self) -> Result<(), String> {
+        let default_name = self.file_name.clone().unwrap_or_else(|| "output.nes".into());
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("NES ROM", &["nes"])
+            .set_file_name(&default_name)
+            .save_file()
+        else {
+            return Ok(()); // キャンセル
+        };
+        self.write_to_path(&path)?;
+        // 保存先を新しいパスに更新
+        self.file_name = Some(
+            path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        );
+        self.file_path = Some(path);
+        Ok(())
+    }
+
+    /// CHR データを raw_file_data に書き戻してファイルへ出力する
+    fn write_to_path(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let rom = self.rom.as_ref().ok_or("ROM が読み込まれていません")?;
+        let raw = self.raw_file_data.as_mut().ok_or("元ファイルデータがありません")?;
+
+        let start = rom.chr_data_offset;
+        let end   = start + rom.chr_rom.len();
+        if end > raw.len() {
+            return Err("ファイルサイズが不正です".into());
+        }
+        raw[start..end].copy_from_slice(&rom.chr_rom);
+
+        std::fs::write(path, raw as &[u8]).map_err(|e| format!("保存失敗: {e}"))?;
+        self.is_modified = false;
+        Ok(())
+    }
+
+    // ── 未保存変更の確認ダイアログ ────────────────────────────────
+
+    fn show_close_confirm_dialog(&mut self, ctx: &egui::Context) {
+        let modal = egui::Modal::new("close_confirm".into());
+        modal.show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.heading("未保存の変更があります");
+            ui.add_space(8.0);
+            ui.label(format!(
+                "「{}」への変更が保存されていません。",
+                self.file_name.as_deref().unwrap_or("(無題)")
+            ));
+            ui.label("終了する前に保存しますか？");
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                // 保存して閉じる
+                if ui.button("💾 保存して閉じる").clicked() {
+                    let result = if self.file_path.is_some() {
+                        self.save_file()
+                    } else {
+                        self.save_file_as()
+                    };
+                    match result {
+                        Err(e) => {
+                            self.error_msg = Some(e);
+                            self.show_close_dialog = false;
+                        }
+                        Ok(()) if !self.is_modified => {
+                            // 保存成功 → 閉じる
+                            self.show_close_dialog = false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        Ok(()) => {
+                            // save_file_as でキャンセルされた (is_modified のまま) → 何もしない
+                        }
+                    }
+                }
+
+                // 保存せず閉じる
+                if ui.button("🗑 保存せず閉じる").clicked() {
+                    self.show_close_dialog = false;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+
+                // キャンセル
+                if ui.button("キャンセル").clicked() {
+                    self.show_close_dialog = false;
+                }
+            });
+        });
     }
 
     // ── パレットパネル ────────────────────────────────────────────
@@ -508,13 +666,16 @@ impl RChrApp {
         let mut bank_delta: i32 = 0;
         let mut new_palette_set: Option<usize> = None;
         let mut do_undo = false;
+        let mut do_save = false;
+        let mut do_save_as = false;
 
         ctx.input(|i| {
             if i.key_pressed(egui::Key::PageUp)   { bank_delta -= 1; }
             if i.key_pressed(egui::Key::PageDown)  { bank_delta += 1; }
 
-            let undo_mod = i.modifiers.ctrl || i.modifiers.mac_cmd;
-            if undo_mod && i.key_pressed(egui::Key::Z) {
+            let cmd = i.modifiers.ctrl || i.modifiers.mac_cmd;
+
+            if cmd && i.key_pressed(egui::Key::Z) {
                 do_undo = true;
             } else if i.key_pressed(egui::Key::Z) {
                 new_palette_set = Some(0);
@@ -522,6 +683,14 @@ impl RChrApp {
             if i.key_pressed(egui::Key::X) { new_palette_set = Some(1); }
             if i.key_pressed(egui::Key::C) { new_palette_set = Some(2); }
             if i.key_pressed(egui::Key::V) { new_palette_set = Some(3); }
+
+            if cmd && i.key_pressed(egui::Key::S) {
+                if i.modifiers.shift {
+                    do_save_as = true;
+                } else {
+                    do_save = true;
+                }
+            }
         });
 
         if bank_delta < 0 && self.bank_offset >= 0x1000 {
@@ -538,6 +707,16 @@ impl RChrApp {
         }
         if do_undo {
             self.do_undo();
+        }
+        if do_save {
+            if let Err(e) = self.save_file() {
+                self.error_msg = Some(e);
+            }
+        }
+        if do_save_as {
+            if let Err(e) = self.save_file_as() {
+                self.error_msg = Some(e);
+            }
         }
     }
 }

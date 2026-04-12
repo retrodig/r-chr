@@ -31,6 +31,8 @@ pub struct NesRom {
     pub prg_rom: Vec<u8>,
     /// CHR-ROM バイト列（CHR-RAM の場合は空）
     pub chr_rom: Vec<u8>,
+    /// 元ファイル内での CHR-ROM の開始バイトオフセット（保存時に使用）
+    pub chr_data_offset: usize,
 }
 
 #[derive(Debug)]
@@ -92,8 +94,9 @@ pub fn parse_nes(data: &[u8]) -> Result<NesRom, ParseError> {
         return Err(ParseError::TooShort);
     }
 
-    let prg_rom = data[offset..offset + prg_size].to_vec();
-    let chr_rom = data[offset + prg_size..offset + prg_size + chr_size].to_vec();
+    let chr_data_offset = offset + prg_size;
+    let prg_rom = data[offset..chr_data_offset].to_vec();
+    let chr_rom = data[chr_data_offset..chr_data_offset + chr_size].to_vec();
 
-    Ok(NesRom { header, prg_rom, chr_rom })
+    Ok(NesRom { header, prg_rom, chr_rom, chr_data_offset })
 }
