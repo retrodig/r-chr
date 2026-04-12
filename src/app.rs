@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::chr::{bank_count, decode_tile, encode_dot, render_bank_image};
+use crate::chr::{decode_block, encode_dot, render_full_image};
 use crate::nes::{RomData, parse_nes};
 use crate::palette::{DatPalette, MasterPalette, NES_PALETTE};
 
@@ -24,6 +24,34 @@ pub fn setup_fonts(ctx: &egui::Context) {
     }
 }
 
+// ── フォーカスサイズ ────────────────────────────────────────────────
+
+/// バンクビューの選択ブロックサイズ（ピクセル単位 = タイル数 × 8）
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FocusSize {
+    S8   = 8,
+    S16  = 16,
+    S32  = 32,
+    S64  = 64,
+    S128 = 128,
+}
+
+impl FocusSize {
+    /// 1 辺のタイル数（例: S32 → 4）
+    fn tile_count(self) -> usize { self as usize / 8 }
+
+    /// UI ラベル文字列
+    fn label(self) -> &'static str {
+        match self {
+            Self::S8   => "8",
+            Self::S16  => "16",
+            Self::S32  => "32",
+            Self::S64  => "64",
+            Self::S128 => "128",
+        }
+    }
+}
+
 // ── アクション ──────────────────────────────────────────────────────
 
 /// ドットエディタが発行するアクション（UI 描画とデータ変更を分離するため）
@@ -43,9 +71,15 @@ pub struct RChrApp {
     file_name: Option<String>,
     error_msg: Option<String>,
 
-    bank_offset: usize,
+    /// スクロール位置（ステータス表示用、毎フレーム更新）
+    scroll_addr: usize,
+    /// アドレスジャンプ時の目標アドレス（次フレームで ScrollArea に適用）
+    pending_scroll_addr: Option<usize>,
     bank_texture: Option<egui::TextureHandle>,
     texture_dirty: bool,
+
+    /// バンクビューの選択ブロックサイズ
+    focus_size: FocusSize,
 
     dat_palette: DatPalette,
     master_palette: MasterPalette,
@@ -72,8 +106,6 @@ pub struct RChrApp {
 
     /// アドレスジャンプ入力フィールドの内容（16進数文字列）
     address_input: String,
-    /// マウスホイールのスクロール蓄積量（trackpad の連続スクロール対応）
-    scroll_accumulator: f32,
 
     /// パレットピッカーで編集中のセル (set_idx, color_idx)
     editing_palette_cell: Option<(usize, usize)>,
@@ -85,9 +117,11 @@ impl Default for RChrApp {
             rom: None,
             file_name: None,
             error_msg: None,
-            bank_offset: 0,
+            scroll_addr: 0,
+            pending_scroll_addr: None,
             bank_texture: None,
             texture_dirty: false,
+            focus_size: FocusSize::S8,
             dat_palette: DatPalette::from_dat_bytes(DEFAULT_DAT).unwrap_or_default(),
             master_palette: MasterPalette::from_pal_bytes(DEFAULT_PAL).unwrap_or_default(),
             selected_palette_set: 0,
@@ -100,7 +134,6 @@ impl Default for RChrApp {
             is_modified: false,
             show_close_dialog: false,
             address_input: "000000".into(),
-            scroll_accumulator: 0.0,
             editing_palette_cell: None,
         }
     }
@@ -113,9 +146,8 @@ impl eframe::App for RChrApp {
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
                 if !rom.chr_data().is_empty() {
-                    let image = render_bank_image(
+                    let image = render_full_image(
                         rom.chr_data(),
-                        self.bank_offset,
                         &self.dat_palette,
                         self.selected_palette_set,
                         &self.master_palette,
@@ -223,13 +255,12 @@ impl eframe::App for RChrApp {
                 }
                 if let Some(rom) = &self.rom {
                     if !rom.chr_data().is_empty() {
-                        let cur = self.bank_offset / 0x1000 + 1;
-                        let tot = bank_count(rom.chr_data());
-                        ui.label(format!("バンク: {cur} / {tot}  |  0x{:06X}", self.bank_offset));
+                        let total_tiles = rom.chr_data().len() / 16;
+                        ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
                         if let Some(idx) = self.selected_tile {
                             ui.separator();
-                            let addr = self.bank_offset + idx * 16;
-                            ui.label(format!("タイル: {idx} (0x{addr:06X})"));
+                            let addr = idx * 16;
+                            ui.label(format!("タイル: {} (0x{:06X})", idx, addr));
                         }
                     }
                 }
@@ -277,7 +308,7 @@ impl eframe::App for RChrApp {
             match &self.rom {
                 None => {
                     ui.centered_and_justified(|ui| {
-                        ui.label("ファイルメニューから NES ROM を開いてください");
+                        ui.label("ファイルメニューから NES / BIN ファイルを開いてください");
                     });
                 }
                 Some(rom) => {
@@ -360,7 +391,8 @@ impl RChrApp {
 
         self.error_msg = None;
         self.file_name = Some(file_name);
-        self.bank_offset = 0;
+        self.scroll_addr = 0;
+        self.pending_scroll_addr = Some(0);
         self.selected_tile = None;
         self.undo_stack.clear();
         self.file_path = Some(path);
@@ -372,25 +404,14 @@ impl RChrApp {
     // ── バンクビュー ──────────────────────────────────────────────
 
     fn show_bank_view(&mut self, ui: &mut egui::Ui) {
-        let can_prev = self.bank_offset >= 0x1000;
-        let can_next = self.rom.as_ref().map_or(false, |r| {
-            self.bank_offset + 0x1000 < r.chr_data().len()
-        });
+        // 利用可能幅から表示スケールを計算（整数スケール）
+        let available_w = ui.available_width();
+        let scale = (available_w / 128.0).floor().max(1.0);
+        let tile_px = 8.0 * scale; // 1 タイルの表示サイズ（px）
 
+        // ── ツールバー（アドレスジャンプ + フォーカスサイズ）
         ui.horizontal(|ui| {
-            // ── バンク移動ボタン
-            if ui.add_enabled(can_prev, egui::Button::new("◀ 前")).clicked() {
-                self.bank_offset -= 0x1000;
-                self.texture_dirty = true;
-            }
-            if ui.add_enabled(can_next, egui::Button::new("次 ▶")).clicked() {
-                self.bank_offset += 0x1000;
-                self.texture_dirty = true;
-            }
-
-            ui.separator();
-
-            // ── アドレスジャンプ入力
+            // アドレスジャンプ入力
             ui.label("アドレス:");
             let addr_resp = ui.add(
                 egui::TextEdit::singleline(&mut self.address_input)
@@ -399,108 +420,143 @@ impl RChrApp {
                     .hint_text("001000"),
             );
 
-            // ジャンプ判定を address_input の上書きより先に行う
             let enter_pressed = addr_resp.lost_focus()
                 && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let button_clicked = ui.button("移動").clicked();
 
             if enter_pressed || button_clicked {
-                // ユーザーが入力した内容でジャンプ
                 self.jump_to_address();
-                // テキストフィールドからフォーカスを外す
                 ui.ctx().memory_mut(|m| m.surrender_focus(addr_resp.id));
             } else if !addr_resp.has_focus() {
-                // 編集中でなければ選択タイルのアドレス（なければバンク先頭）を表示
                 self.address_input = match self.selected_tile {
-                    Some(idx) => format!("{:06X}", self.bank_offset + idx * 16),
-                    None      => format!("{:06X}", self.bank_offset),
+                    Some(idx) => format!("{:06X}", idx * 16),
+                    None      => format!("{:06X}", self.scroll_addr),
                 };
+            }
+
+            ui.separator();
+
+            // フォーカスサイズ切り替えボタン
+            ui.label("サイズ:");
+            for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
+                if ui.selectable_label(self.focus_size == fs, fs.label()).clicked() {
+                    self.focus_size = fs;
+                    // 選択タイルの起点は変えない（8×8 単位で自由に設定できる）
+                }
             }
         });
         ui.add_space(4.0);
 
-        if let Some(texture) = &self.bank_texture {
-            let available = ui.available_size();
-            let size = available.x.min(available.y).min(512.0);
+        // ── スクロールビューの準備（self からコピーが必要な値を事前抽出）
+        let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
+        if total_tiles == 0 { return; }
+        let total_rows = (total_tiles + 15) / 16;
+        let texture_id = match &self.bank_texture {
+            Some(t) => t.id(),
+            None => return,
+        };
+        let n = self.focus_size.tile_count();
+        let selected_tile_snap = self.selected_tile;
+        let display_w = 128.0 * scale;
+        let display_h = total_rows as f32 * tile_px;
 
-            let response = ui.add(
-                egui::Image::new(texture)
-                    .fit_to_exact_size(egui::vec2(size, size))
-                    .sense(egui::Sense::click()),
+        // ── ScrollArea のスクロール位置をアドレスジャンプで制御
+        let mut scroll_area = egui::ScrollArea::vertical()
+            .id_salt("bank_scroll")
+            .auto_shrink([false, false]);
+
+        if let Some(addr) = self.pending_scroll_addr.take() {
+            let row = addr / 0x100;
+            scroll_area = scroll_area.vertical_scroll_offset(row as f32 * tile_px);
+        }
+
+        let scroll_out = scroll_area.show(ui, |ui| {
+            let (rect, response) = ui.allocate_exact_size(
+                egui::vec2(display_w, display_h),
+                egui::Sense::click(),
             );
-            let rect = response.rect;
-            let tile_px = size / 16.0;
 
-            // タイルクリック検出
-            if response.clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    let tx = ((pos.x - rect.left()) / tile_px) as usize;
-                    let ty = ((pos.y - rect.top()) / tile_px) as usize;
-                    if tx < 16 && ty < 16 {
-                        self.selected_tile = Some(ty * 16 + tx);
-                    }
-                }
-            }
+            // テクスチャ描画
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            ui.painter().image(texture_id, rect, uv, egui::Color32::WHITE);
 
             let painter = ui.painter();
 
-            // グリッド線
-            let grid_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40);
-            for i in 1..16 {
-                let x = rect.left() + tile_px * i as f32;
+            // マイナーグリッド（タイル単位）
+            let minor = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25);
+            for col in 1..16 {
+                let x = rect.left() + tile_px * col as f32;
                 painter.line_segment(
                     [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    egui::Stroke::new(1.0, grid_color),
+                    egui::Stroke::new(0.5, minor),
                 );
-                let y = rect.top() + tile_px * i as f32;
+            }
+            for row in 1..total_rows {
+                let y = rect.top() + tile_px * row as f32;
                 painter.line_segment(
                     [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    egui::Stroke::new(1.0, grid_color),
+                    egui::Stroke::new(0.5, minor),
                 );
             }
 
-            // ── マウスホイールでバンク移動
-            if response.hovered() {
-                let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
-                self.scroll_accumulator += scroll_y;
-                // trackpad の連続スクロールに対応: 40px 蓄積でバンク移動
-                const THRESHOLD: f32 = 40.0;
-                while self.scroll_accumulator >= THRESHOLD {
-                    self.scroll_accumulator -= THRESHOLD;
-                    if self.bank_offset >= 0x1000 {
-                        self.bank_offset -= 0x1000;
-                        self.texture_dirty = true;
-                    }
+            // メジャーグリッド（フォーカスブロック単位）
+            if n > 1 {
+                let major = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 70);
+                for col in (0..=16).step_by(n) {
+                    let x = rect.left() + tile_px * col as f32;
+                    painter.line_segment(
+                        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                        egui::Stroke::new(1.0, major),
+                    );
                 }
-                while self.scroll_accumulator <= -THRESHOLD {
-                    self.scroll_accumulator += THRESHOLD;
-                    if let Some(rom) = &self.rom {
-                        if self.bank_offset + 0x1000 < rom.chr_data().len() {
-                            self.bank_offset += 0x1000;
-                            self.texture_dirty = true;
-                        }
-                    }
+                for row in (0..=total_rows).step_by(n) {
+                    let y = rect.top() + tile_px * row as f32;
+                    painter.line_segment(
+                        [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                        egui::Stroke::new(1.0, major),
+                    );
                 }
+            }
+
+            // タイルクリック検出（フォーカスグリッドに snap）
+            let new_tile = if response.clicked() {
+                response.interact_pointer_pos().and_then(|pos| {
+                    let rel_x = pos.x - rect.left();
+                    let rel_y = pos.y - rect.top();
+                    if rel_x < 0.0 || rel_y < 0.0 { return None; }
+                    let col = (rel_x / tile_px) as usize;
+                    let row = (rel_y / tile_px) as usize;
+                    if col >= 16 { return None; }
+                    let global_tile = row * 16 + col;
+                    (global_tile < total_tiles).then_some(global_tile)
+                })
             } else {
-                // ホバー外に出たらリセット（蓄積を引き継がない）
-                self.scroll_accumulator = 0.0;
-            }
+                None
+            };
 
-            // 選択タイルのハイライト
-            if let Some(idx) = self.selected_tile {
-                let tx = (idx % 16) as f32;
-                let ty = (idx / 16) as f32;
-                let hl = egui::Rect::from_min_size(
-                    egui::pos2(rect.left() + tx * tile_px, rect.top() + ty * tile_px),
-                    egui::vec2(tile_px, tile_px),
-                );
+            // 選択ブロックのハイライト
+            if let Some(tile_idx) = selected_tile_snap {
+                let t_row = tile_idx / 16;
+                let t_col = tile_idx % 16;
+                let bx = rect.left() + t_col as f32 * tile_px;
+                let by_ = rect.top()  + t_row as f32 * tile_px;
+                let bs  = tile_px * n as f32;
+                let hl  = egui::Rect::from_min_size(egui::pos2(bx, by_), egui::vec2(bs, bs));
                 painter.rect_stroke(
                     hl, 0.0,
                     egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
                     egui::StrokeKind::Outside,
                 );
             }
+
+            new_tile
+        });
+
+        // スクロール結果を self に反映
+        if let Some(tile) = scroll_out.inner {
+            self.selected_tile = Some(tile);
         }
+        self.scroll_addr = (scroll_out.state.offset.y / tile_px) as usize * 0x100;
     }
 
     // ── ドットエディタ ────────────────────────────────────────────
@@ -539,20 +595,24 @@ impl RChrApp {
         ui.add_space(4.0);
 
         // ── タイルが未選択
-        let Some(tile_idx) = self.selected_tile else {
+        let Some(top_left_tile) = self.selected_tile else {
             ui.label("← タイルをクリックして選択");
             return None;
         };
         let Some(rom) = &self.rom else { return None };
-        let tile_offset = self.bank_offset + tile_idx * 16;
-        if tile_offset + 16 > rom.chr_data().len() { return None }
 
-        let tile = decode_tile(&rom.chr_data()[tile_offset..tile_offset + 16]);
+        let n = self.focus_size.tile_count(); // ブロック 1 辺のタイル数
+        let block_px = n * 8;                // ブロック 1 辺のドット数
+
+        // フォーカスブロック全体をデコード（N×N タイル → block_px × block_px ドット）
+        let block = decode_block(rom.chr_data(), top_left_tile, 16, n);
 
         // ── ドットキャンバス
         let available = ui.available_size();
-        let dot_size = (available.x.min(available.y) / 8.0).floor().max(8.0);
-        let canvas = dot_size * 8.0;
+        let dot_size = (available.x.min(available.y) / block_px as f32)
+            .floor()
+            .max(1.0);
+        let canvas = dot_size * block_px as f32;
 
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(canvas, canvas),
@@ -560,18 +620,43 @@ impl RChrApp {
         );
         let painter = ui.painter();
 
-        for py in 0..8usize {
-            for px in 0..8usize {
-                let fill = self.dat_palette.color32(self.selected_palette_set, tile[py][px] as usize, &self.master_palette);
+        for py in 0..block_px {
+            for px in 0..block_px {
+                let fill = self.dat_palette.color32(
+                    self.selected_palette_set,
+                    block[py][px] as usize,
+                    &self.master_palette,
+                );
                 let dot_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.left() + px as f32 * dot_size, rect.top() + py as f32 * dot_size),
                     egui::vec2(dot_size, dot_size),
                 );
                 painter.rect_filled(dot_rect, 0.0, fill);
-                painter.rect_stroke(
-                    dot_rect, 0.0,
-                    egui::Stroke::new(0.5, egui::Color32::from_gray(60)),
-                    egui::StrokeKind::Inside,
+                // ドットグリッド線（block_px が小さいときのみ描画）
+                if dot_size >= 4.0 {
+                    painter.rect_stroke(
+                        dot_rect, 0.0,
+                        egui::Stroke::new(0.5, egui::Color32::from_gray(60)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+
+        // タイル境界線（フォーカスが 2 タイル以上のとき）
+        if n > 1 && dot_size >= 2.0 {
+            let tile_line_color = egui::Color32::from_rgba_unmultiplied(200, 200, 200, 80);
+            let tile_step = dot_size * 8.0;
+            for t in 1..n {
+                let x = rect.left() + tile_step * t as f32;
+                painter.line_segment(
+                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                    egui::Stroke::new(1.0, tile_line_color),
+                );
+                let y = rect.top() + tile_step * t as f32;
+                painter.line_segment(
+                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                    egui::Stroke::new(1.0, tile_line_color),
                 );
             }
         }
@@ -584,12 +669,24 @@ impl RChrApp {
 
         let px = (rel_x / dot_size) as usize;
         let py = (rel_y / dot_size) as usize;
-        if px >= 8 || py >= 8 { return None }
+        if px >= block_px || py >= block_px { return None }
 
         // 右クリック → スポイト
         if response.secondary_clicked() {
-            return Some(EditorAction::Eyedrop { color_idx: tile[py][px] });
+            return Some(EditorAction::Eyedrop { color_idx: block[py][px] });
         }
+
+        // クリック / ドラッグしたドットが属するタイルのオフセットを計算
+        let block_col = px / 8;
+        let block_row = py / 8;
+        let top_col = top_left_tile % 16;
+        let top_row = top_left_tile / 16;
+        let tile_global = (top_row + block_row) * 16 + (top_col + block_col);
+        let tile_offset = tile_global * 16;
+        let dot_px = px % 8;
+        let dot_py = py % 8;
+
+        if tile_offset + 16 > rom.chr_data().len() { return None; }
 
         // 左クリック / 左ドラッグ → 描画
         let drag_started = response.drag_started_by(egui::PointerButton::Primary);
@@ -597,10 +694,9 @@ impl RChrApp {
         let clicked      = response.clicked_by(egui::PointerButton::Primary);
 
         if drag_started || dragging || clicked {
-            // ドラッグ開始またはシングルクリックの初回のみ undo を保存
             let push_undo = drag_started || clicked;
             return Some(EditorAction::PaintDot {
-                tile_offset, px, py,
+                tile_offset, px: dot_px, py: dot_py,
                 color: self.drawing_color_idx,
                 push_undo,
             });
@@ -640,30 +736,31 @@ impl RChrApp {
         }
     }
 
-    /// アドレス入力フィールドの内容をパースして該当バンク・タイルへジャンプする
+    /// アドレス入力フィールドの内容をパースして該当タイルへスクロール・フォーカス
     fn jump_to_address(&mut self) {
         let raw = self.address_input.trim()
             .trim_start_matches("0x")
             .trim_start_matches("0X");
         if let Ok(addr) = usize::from_str_radix(raw, 16) {
-            let bank_addr  = addr & !0xFFF;          // バンク先頭（0x1000 境界）
-            let within_bank = addr & 0xFFF;           // バンク内オフセット
-            let tile_idx   = (within_bank / 16).min(255); // タイルインデックス（0〜255）
-            let tile_addr  = bank_addr + tile_idx * 16;   // タイル先頭アドレス
+            let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
+            if total_tiles > 0 {
+                let tile_idx = (addr / 16).min(total_tiles.saturating_sub(1));
+                let n = self.focus_size.tile_count();
+                let snap_col = (tile_idx % 16 / n) * n;
+                let snap_row = (tile_idx / 16 / n) * n;
+                let snapped  = snap_row * 16 + snap_col;
 
-            if let Some(rom) = &self.rom {
-                if bank_addr < rom.chr_data().len() {
-                    self.bank_offset  = bank_addr;
-                    self.selected_tile = Some(tile_idx);
-                    self.texture_dirty = true;
-                    // フィールドにタイル先頭アドレスを表示（入力値と近い値でフィードバック）
-                    self.address_input = format!("{:06X}", tile_addr);
-                    return;
-                }
+                self.selected_tile      = Some(snapped);
+                self.pending_scroll_addr = Some(snap_row * 0x100);
+                self.address_input       = format!("{:06X}", snapped * 16);
+                return;
             }
         }
         // パース失敗・範囲外の場合は現在値に戻す
-        self.address_input = format!("{:06X}", self.bank_offset);
+        self.address_input = match self.selected_tile {
+            Some(idx) => format!("{:06X}", idx * 16),
+            None      => format!("{:06X}", self.scroll_addr),
+        };
     }
 
     fn do_undo(&mut self) {
@@ -1010,18 +1107,15 @@ impl RChrApp {
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let chr_empty = self.rom.as_ref().map_or(true, |r| r.chr_data().is_empty());
         if chr_empty { return }
-        let total = self.rom.as_ref().map_or(0, |r| bank_count(r.chr_data()));
 
-        let mut bank_delta: i32 = 0;
         let mut new_palette_set: Option<usize> = None;
         let mut do_undo = false;
         let mut do_save = false;
         let mut do_save_as = false;
+        let mut d_col: i32 = 0; // 矢印キーによる列移動量（ブロック単位）
+        let mut d_row: i32 = 0; // 矢印キーによる行移動量（ブロック単位）
 
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::PageUp)   { bank_delta -= 1; }
-            if i.key_pressed(egui::Key::PageDown)  { bank_delta += 1; }
-
             let cmd = i.modifiers.ctrl || i.modifiers.mac_cmd;
 
             if cmd && i.key_pressed(egui::Key::Z) {
@@ -1034,37 +1128,47 @@ impl RChrApp {
             if i.key_pressed(egui::Key::V) { new_palette_set = Some(3); }
 
             if cmd && i.key_pressed(egui::Key::S) {
-                if i.modifiers.shift {
-                    do_save_as = true;
-                } else {
-                    do_save = true;
-                }
+                if i.modifiers.shift { do_save_as = true; } else { do_save = true; }
             }
+
+            // 矢印キー（フォーカスブロック単位で移動）
+            if i.key_pressed(egui::Key::ArrowRight) { d_col += 1; }
+            if i.key_pressed(egui::Key::ArrowLeft)  { d_col -= 1; }
+            if i.key_pressed(egui::Key::ArrowDown)  { d_row += 1; }
+            if i.key_pressed(egui::Key::ArrowUp)    { d_row -= 1; }
         });
 
-        if bank_delta < 0 && self.bank_offset >= 0x1000 {
-            self.bank_offset -= 0x1000;
-            self.texture_dirty = true;
-        }
-        if bank_delta > 0 && self.bank_offset / 0x1000 + 1 < total {
-            self.bank_offset += 0x1000;
-            self.texture_dirty = true;
-        }
         if let Some(set) = new_palette_set {
             self.selected_palette_set = set;
             self.texture_dirty = true;
         }
-        if do_undo {
-            self.do_undo();
-        }
+        if do_undo { self.do_undo(); }
         if do_save {
-            if let Err(e) = self.save_file() {
-                self.error_msg = Some(e);
-            }
+            if let Err(e) = self.save_file() { self.error_msg = Some(e); }
         }
         if do_save_as {
-            if let Err(e) = self.save_file_as() {
-                self.error_msg = Some(e);
+            if let Err(e) = self.save_file_as() { self.error_msg = Some(e); }
+        }
+
+        // 矢印キーによるタイル選択移動（起点は常に 1 タイル単位）
+        if d_col != 0 || d_row != 0 {
+            let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
+            if total_tiles == 0 { return; }
+            let total_rows = ((total_tiles + 15) / 16) as i32;
+
+            let current = self.selected_tile.unwrap_or(0);
+            let cur_col = (current % 16) as i32;
+            let cur_row = (current / 16) as i32;
+
+            // 1 タイル単位で移動し、端でクランプ
+            let new_col = (cur_col + d_col).clamp(0, 15) as usize;
+            let new_row = (cur_row + d_row).clamp(0, total_rows - 1) as usize;
+            let new_tile = new_row * 16 + new_col;
+
+            if new_tile < total_tiles {
+                self.selected_tile = Some(new_tile);
+                // 選択が画面外に出た場合にスクロールで追従
+                self.pending_scroll_addr = Some(new_row * 0x100);
             }
         }
     }
