@@ -67,6 +67,15 @@ pub fn render_bank_image(
     ColorImage::from_rgba_unmultiplied([IMG_SIZE, IMG_SIZE], &rgba)
 }
 
+/// タイルデータの指定ドット (px, py) にカラーインデックスを書き込む（2BPP NES 形式）
+///
+/// data は 16バイト（プレーン 0: 0〜7, プレーン 1: 8〜15）
+pub fn encode_dot(data: &mut [u8], px: usize, py: usize, color_idx: u8) {
+    let bit = 7 - px;
+    data[py]     = (data[py]     & !(1 << bit)) | ((color_idx & 1)        << bit);
+    data[py + 8] = (data[py + 8] & !(1 << bit)) | (((color_idx >> 1) & 1) << bit);
+}
+
 /// 指定 CHR データに対して有効なバンク数を返す（1バンク = 0x1000バイト）
 pub fn bank_count(chr_data: &[u8]) -> usize {
     chr_data.len() / 0x1000
