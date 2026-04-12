@@ -2,6 +2,7 @@ use eframe::egui;
 use crate::chr::{decode_block, encode_dot, render_full_image};
 use crate::nes::{RomData, parse_nes};
 use crate::palette::{DatPalette, MasterPalette, NES_PALETTE};
+use crate::png_import::{MappingStrategy, PngImportResult};
 
 /// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
 const DEFAULT_PAL: &[u8] = include_bytes!("../assets/rchr.pal");
@@ -48,6 +49,37 @@ impl FocusSize {
             Self::S32  => "32",
             Self::S64  => "64",
             Self::S128 => "128",
+        }
+    }
+}
+
+// ── PNG インポートダイアログ状態 ───────────────────────────────────
+
+struct PngImportDialog {
+    /// 読み込んだ PNG の生バイト（再マッピング用）
+    png_bytes: Vec<u8>,
+    /// ファイル名（表示用）
+    file_name: String,
+    /// 現在のマッピング戦略
+    strategy: MappingStrategy,
+    /// 現在の変換結果
+    result: PngImportResult,
+    /// プレビューテクスチャ（変換後 CHR 色でレンダリング）
+    preview_texture: Option<egui::TextureHandle>,
+    /// プレビューテクスチャが古くなっているか
+    preview_dirty: bool,
+}
+
+impl PngImportDialog {
+    fn new(png_bytes: Vec<u8>, file_name: String, result: PngImportResult) -> Self {
+        let strategy = result.strategy;
+        Self {
+            png_bytes,
+            file_name,
+            strategy,
+            result,
+            preview_texture: None,
+            preview_dirty: true,
         }
     }
 }
@@ -113,6 +145,9 @@ pub struct RChrApp {
 
     /// パレットピッカーで編集中のセル (set_idx, color_idx)
     editing_palette_cell: Option<(usize, usize)>,
+
+    /// PNG インポートダイアログの状態
+    png_import_dialog: Option<PngImportDialog>,
 }
 
 impl Default for RChrApp {
@@ -141,6 +176,7 @@ impl Default for RChrApp {
             show_close_dialog: false,
             address_input: "000000".into(),
             editing_palette_cell: None,
+            png_import_dialog: None,
         }
     }
 }
@@ -202,6 +238,10 @@ impl eframe::App for RChrApp {
                 ui.menu_button("ファイル", |ui| {
                     if ui.button("開く…  ⌘O").clicked() {
                         self.open_file();
+                        ui.close_menu();
+                    }
+                    if ui.button("PNG をインポート…").clicked() {
+                        self.open_png_import();
                         ui.close_menu();
                     }
                     ui.separator();
@@ -341,6 +381,22 @@ impl eframe::App for RChrApp {
         // ── NES 64色パレットピッカー
         if self.editing_palette_cell.is_some() {
             self.show_nes_palette_picker(ctx);
+        }
+
+        // ── PNG インポートダイアログ
+        if self.png_import_dialog.is_some() {
+            self.show_png_import_dialog(ctx);
+        }
+
+        // ── ドラッグ＆ドロップ（PNG）
+        let dropped_png = ctx.input(|i| {
+            i.raw.dropped_files.iter().find_map(|f| {
+                let path = f.path.as_ref()?;
+                path.extension()?.to_str()?.eq_ignore_ascii_case("png").then(|| path.clone())
+            })
+        });
+        if let Some(path) = dropped_png {
+            self.open_png_import_from_path(&path);
         }
 
         self.handle_keyboard(ctx);
@@ -917,6 +973,231 @@ impl RChrApp {
                 self.status_msg = Some(format!("DAT 保存: {name}"));
             }
         }
+    }
+
+    // ── PNG インポート ────────────────────────────────────────────
+
+    /// メニューから PNG ファイルを選択して開く
+    fn open_png_import(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("PNG 画像", &["png"])
+            .add_filter("すべてのファイル", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        self.open_png_import_from_path(&path);
+    }
+
+    /// パスを直接指定して PNG インポートダイアログを開く（D&D 用）
+    fn open_png_import_from_path(&mut self, path: &std::path::Path) {
+        if self.rom.is_none() {
+            self.error_msg = Some("先に NES / BIN ファイルを開いてください".into());
+            return;
+        }
+        let png_bytes = match std::fs::read(path) {
+            Err(e) => {
+                self.error_msg = Some(format!("PNG 読み込み失敗: {e}"));
+                return;
+            }
+            Ok(b) => b,
+        };
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        self.open_png_import_with_bytes(png_bytes, file_name);
+    }
+
+    fn open_png_import_with_bytes(&mut self, png_bytes: Vec<u8>, file_name: String) {
+        let result = match crate::png_import::import_png(
+            &png_bytes,
+            &self.dat_palette,
+            self.selected_palette_set,
+            &self.master_palette,
+            None, // 自動選択
+        ) {
+            Err(e) => {
+                self.error_msg = Some(format!("PNG 変換失敗: {e}"));
+                return;
+            }
+            Ok(r) => r,
+        };
+        self.png_import_dialog = Some(PngImportDialog::new(png_bytes, file_name, result));
+    }
+
+    /// PNG インポートダイアログを表示する
+    fn show_png_import_dialog(&mut self, ctx: &egui::Context) {
+        let dialog = match &mut self.png_import_dialog {
+            Some(d) => d,
+            None => return,
+        };
+
+        // プレビューテクスチャの更新
+        if dialog.preview_dirty {
+            let w = dialog.result.width;
+            let h = dialog.result.height;
+            let mut rgba = vec![0u8; w * h * 4];
+            for y in 0..h {
+                for x in 0..w {
+                    let ci = dialog.result.pixels[y][x] as usize;
+                    let [r, g, b] = self.dat_palette.color_rgb(
+                        self.selected_palette_set, ci, &self.master_palette,
+                    );
+                    let i = (y * w + x) * 4;
+                    rgba[i]     = r;
+                    rgba[i + 1] = g;
+                    rgba[i + 2] = b;
+                    rgba[i + 3] = 255;
+                }
+            }
+            let image = egui::ColorImage::from_rgba_unmultiplied([w.max(1), h.max(1)], &rgba);
+            dialog.preview_texture = Some(ctx.load_texture(
+                "png_preview",
+                image,
+                egui::TextureOptions::NEAREST,
+            ));
+            dialog.preview_dirty = false;
+        }
+
+        // ── ダイアログウィンドウ
+        let mut do_import = false;
+        let mut do_close  = false;
+        let mut new_strategy: Option<MappingStrategy> = None;
+
+        egui::Window::new("PNG インポート")
+            .resizable(true)
+            .min_width(360.0)
+            .show(ctx, |ui| {
+                // ファイル情報
+                let tw = dialog.result.tile_width();
+                let th = dialog.result.tile_height();
+                ui.label(format!(
+                    "ファイル: {}  ({}×{} px = {}×{} タイル)",
+                    dialog.file_name,
+                    dialog.result.width, dialog.result.height,
+                    tw, th,
+                ));
+                ui.add_space(6.0);
+
+                // マッピング戦略選択
+                ui.label("マッピング戦略:");
+                ui.horizontal(|ui| {
+                    for s in [MappingStrategy::PaletteMatch, MappingStrategy::IndexDirect, MappingStrategy::RgbApprox] {
+                        if ui.radio(dialog.strategy == s, s.label()).clicked() && dialog.strategy != s {
+                            new_strategy = Some(s);
+                        }
+                    }
+                });
+                ui.add_space(6.0);
+
+                // 警告表示
+                if !dialog.result.warnings.is_empty() {
+                    for w in &dialog.result.warnings {
+                        ui.colored_label(egui::Color32::YELLOW, format!("⚠ {w}"));
+                    }
+                    ui.add_space(4.0);
+                }
+
+                // プレビュー
+                ui.label("プレビュー（変換後）:");
+                if let Some(tex) = &dialog.preview_texture {
+                    let pw = (dialog.result.width  * 2).min(512) as f32;
+                    let ph = (dialog.result.height * 2).min(512) as f32;
+                    let ratio = dialog.result.width as f32 / dialog.result.height.max(1) as f32;
+                    let (pw, ph) = if pw / ph > ratio {
+                        (ph * ratio, ph)
+                    } else {
+                        (pw, pw / ratio.max(0.01))
+                    };
+                    ui.image(egui::load::SizedTexture::new(tex.id(), egui::vec2(pw, ph)));
+                }
+                ui.add_space(8.0);
+
+                // 貼り付け先情報
+                let dest_tile = self.selected_tile.unwrap_or(0);
+                ui.label(format!("貼り付け先: タイル {} (0x{:06X}) から", dest_tile, dest_tile * 16));
+                ui.add_space(8.0);
+
+                // ボタン行
+                ui.horizontal(|ui| {
+                    if ui.button("貼り付け").clicked() {
+                        do_import = true;
+                    }
+                    if ui.button("キャンセル").clicked() {
+                        do_close = true;
+                    }
+                });
+            });
+
+        // 戦略変更時は再マッピング
+        if let Some(s) = new_strategy {
+            let png_bytes = self.png_import_dialog.as_ref().unwrap().png_bytes.clone();
+            match crate::png_import::import_png(
+                &png_bytes,
+                &self.dat_palette,
+                self.selected_palette_set,
+                &self.master_palette,
+                Some(s),
+            ) {
+                Ok(result) => {
+                    let dialog = self.png_import_dialog.as_mut().unwrap();
+                    dialog.strategy = s;
+                    dialog.result = result;
+                    dialog.preview_dirty = true;
+                }
+                Err(e) => {
+                    self.error_msg = Some(format!("PNG 変換失敗: {e}"));
+                }
+            }
+        }
+
+        // 貼り付け実行
+        if do_import {
+            self.apply_png_import();
+            self.png_import_dialog = None;
+            return;
+        }
+
+        if do_close {
+            self.png_import_dialog = None;
+        }
+    }
+
+    /// PNG インポート結果を CHR データに書き込む
+    fn apply_png_import(&mut self) {
+        let dialog = match &self.png_import_dialog {
+            Some(d) => d,
+            None => return,
+        };
+        let Some(rom) = &mut self.rom else { return };
+        let top_left_tile = self.selected_tile.unwrap_or(0);
+        let chr_len = rom.chr_data().len();
+
+        // Undo 用: 影響範囲の全タイルを保存
+        let tw = dialog.result.tile_width();
+        let th = dialog.result.tile_height();
+        let top_row = top_left_tile / 16;
+        let top_col = top_left_tile % 16;
+        for by in 0..th {
+            for bx in 0..tw {
+                let tile_global = (top_row + by) * 16 + (top_col + bx);
+                let offset = tile_global * 16;
+                if offset + 16 <= chr_len {
+                    let saved: [u8; 16] = rom.chr_data()[offset..offset + 16].try_into().unwrap();
+                    if self.undo_stack.len() >= 200 {
+                        self.undo_stack.remove(0);
+                    }
+                    self.undo_stack.push((offset, saved));
+                }
+            }
+        }
+
+        // CHR へ書き込み
+        let result = &dialog.result;
+        crate::png_import::write_to_chr(rom.chr_data_mut(), result, top_left_tile, 16);
+
+        self.is_modified = true;
+        self.texture_dirty = true;
+        let (tw, th) = (result.tile_width(), result.tile_height());
+        self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
     }
 
     // ── 未保存変更の確認ダイアログ ────────────────────────────────

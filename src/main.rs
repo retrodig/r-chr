@@ -2,6 +2,7 @@ mod app;
 mod chr;
 mod nes;
 mod palette;
+mod png_import;
 
 use eframe::egui;
 
