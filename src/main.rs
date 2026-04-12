@@ -1,3 +1,6 @@
+mod app;
+mod nes;
+
 use eframe::egui;
 
 fn main() -> eframe::Result {
@@ -11,18 +14,9 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "r-chr",
         options,
-        Box::new(|_cc| Ok(Box::new(RChrApp::default()))),
+        Box::new(|cc| {
+            app::setup_fonts(&cc.egui_ctx);
+            Ok(Box::new(app::RChrApp::default()))
+        }),
     )
-}
-
-#[derive(Default)]
-struct RChrApp {}
-
-impl eframe::App for RChrApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("r-chr");
-            ui.label("NES CHR エディタ");
-        });
-    }
 }
