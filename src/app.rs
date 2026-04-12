@@ -75,6 +75,10 @@ pub struct RChrApp {
     scroll_addr: usize,
     /// アドレスジャンプ時の目標アドレス（次フレームで ScrollArea に適用）
     pending_scroll_addr: Option<usize>,
+    /// バンクビューの表示先頭行（矢印キーのスクロール判定用）
+    scroll_top_row: usize,
+    /// バンクビューの可視行数（矢印キーのスクロール判定用）
+    visible_tile_rows: usize,
     bank_texture: Option<egui::TextureHandle>,
     texture_dirty: bool,
 
@@ -119,6 +123,8 @@ impl Default for RChrApp {
             error_msg: None,
             scroll_addr: 0,
             pending_scroll_addr: None,
+            scroll_top_row: 0,
+            visible_tile_rows: 0,
             bank_texture: None,
             texture_dirty: false,
             focus_size: FocusSize::S8,
@@ -556,7 +562,11 @@ impl RChrApp {
         if let Some(tile) = scroll_out.inner {
             self.selected_tile = Some(tile);
         }
-        self.scroll_addr = (scroll_out.state.offset.y / tile_px) as usize * 0x100;
+        let scroll_y = scroll_out.state.offset.y;
+        self.scroll_addr = (scroll_y / tile_px) as usize * 0x100;
+        // 矢印キーのスクロール判定用にビューポート情報を保存
+        self.scroll_top_row = (scroll_y / tile_px) as usize;
+        self.visible_tile_rows = (scroll_out.inner_rect.height() / tile_px).floor() as usize;
     }
 
     // ── ドットエディタ ────────────────────────────────────────────
@@ -1167,8 +1177,17 @@ impl RChrApp {
 
             if new_tile < total_tiles {
                 self.selected_tile = Some(new_tile);
-                // 選択が画面外に出た場合にスクロールで追従
-                self.pending_scroll_addr = Some(new_row * 0x100);
+                // 選択タイルが可視範囲外に出た場合のみスクロール
+                let visible_end = self.scroll_top_row + self.visible_tile_rows.max(1);
+                if new_row < self.scroll_top_row {
+                    // 上に出た → 選択行を先頭に
+                    self.pending_scroll_addr = Some(new_row * 0x100);
+                } else if new_row >= visible_end {
+                    // 下に出た → 選択行が末尾に来るよう調整
+                    let start_row = new_row + 1 - self.visible_tile_rows.max(1);
+                    self.pending_scroll_addr = Some(start_row * 0x100);
+                }
+                // 可視範囲内なら scroll しない（チラツキ防止）
             }
         }
     }
