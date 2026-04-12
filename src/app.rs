@@ -1,6 +1,7 @@
 use eframe::egui;
 use crate::chr::{bank_count, render_bank_image};
 use crate::nes::{NesRom, parse_nes};
+use crate::palette::DatPalette;
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
@@ -36,6 +37,11 @@ pub struct RChrApp {
     bank_texture: Option<egui::TextureHandle>,
     /// テクスチャの再生成が必要かどうか
     texture_dirty: bool,
+
+    /// DAT パレット（4セット × 4色）
+    dat_palette: DatPalette,
+    /// 現在選択中のパレットセット（0〜3）
+    selected_palette_set: usize,
 }
 
 impl Default for RChrApp {
@@ -47,21 +53,28 @@ impl Default for RChrApp {
             bank_offset: 0,
             bank_texture: None,
             texture_dirty: false,
+            dat_palette: DatPalette::default(),
+            selected_palette_set: 0,
         }
     }
 }
 
 impl eframe::App for RChrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // テクスチャの再生成（ROM 読み込み・バンク移動後）
+        // テクスチャの再生成（ROM 読み込み・バンク移動・パレット変更後）
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
                 if !rom.chr_rom.is_empty() {
-                    let image = render_bank_image(&rom.chr_rom, self.bank_offset);
+                    let image = render_bank_image(
+                        &rom.chr_rom,
+                        self.bank_offset,
+                        &self.dat_palette,
+                        self.selected_palette_set,
+                    );
                     self.bank_texture = Some(ctx.load_texture(
                         "bank_view",
                         image,
-                        egui::TextureOptions::NEAREST, // ドット絵なのでニアレストネイバー
+                        egui::TextureOptions::NEAREST,
                     ));
                 }
             }
@@ -100,7 +113,15 @@ impl eframe::App for RChrApp {
             });
         });
 
-        // メインパネル
+        // パレットサイドパネル（右側）
+        egui::SidePanel::right("palette_panel")
+            .resizable(false)
+            .exact_width(160.0)
+            .show(ctx, |ui| {
+                self.show_palette_panel(ui);
+            });
+
+        // メインパネル（バンクビュー）
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(err) = self.error_msg.clone() {
                 ui.colored_label(egui::Color32::RED, format!("エラー: {err}"));
@@ -132,7 +153,6 @@ impl eframe::App for RChrApp {
             }
         });
 
-        // キーボードでバンク移動
         self.handle_keyboard(ctx);
     }
 }
@@ -174,8 +194,9 @@ impl RChrApp {
         }
     }
 
+    // ── バンクビュー ────────────────────────────────────────────────
+
     fn show_bank_view(&mut self, ui: &mut egui::Ui) {
-        // バンク移動ボタン
         ui.horizontal(|ui| {
             let can_prev = self.bank_offset >= 0x1000;
             let can_next = self.rom.as_ref().map_or(false, |r| {
@@ -194,10 +215,8 @@ impl RChrApp {
 
         ui.add_space(8.0);
 
-        // バンクビュー（テクスチャ表示）
         if let Some(texture) = &self.bank_texture {
             let available = ui.available_size();
-            // アスペクト比 1:1 を保ちつつ、利用可能な領域に収める
             let size = available.x.min(available.y).min(512.0);
 
             let response = ui.add(
@@ -206,16 +225,13 @@ impl RChrApp {
                     .sense(egui::Sense::click()),
             );
 
-            // グリッド線をタイル境界（8×8）に描画
             self.draw_grid(ui, response.rect, size);
         }
     }
 
-    /// バンクビュー上にタイルグリッド線を描画する
     fn draw_grid(&self, ui: &egui::Ui, rect: egui::Rect, view_size: f32) {
         let painter = ui.painter();
-        let tile_px = view_size / 16.0; // 1タイルあたりの表示ピクセル数
-
+        let tile_px = view_size / 16.0;
         let grid_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40);
 
         for i in 1..16 {
@@ -232,18 +248,93 @@ impl RChrApp {
         }
     }
 
+    // ── パレットパネル ──────────────────────────────────────────────
+
+    fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        ui.strong("パレット");
+        ui.separator();
+        ui.add_space(4.0);
+
+        let swatch_size = egui::vec2(28.0, 28.0);
+        let mut changed = false;
+
+        for set_idx in 0..4 {
+            let is_selected = self.selected_palette_set == set_idx;
+
+            // 選択中セットは枠線でハイライト
+            let frame = egui::Frame::new()
+                .stroke(if is_selected {
+                    egui::Stroke::new(2.0, egui::Color32::WHITE)
+                } else {
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(80))
+                })
+                .inner_margin(2.0);
+
+            let response = frame.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for color_idx in 0..4 {
+                        let color = self.dat_palette.color32(set_idx, color_idx);
+                        // 色見本を描画
+                        let (rect, _) = ui.allocate_exact_size(swatch_size, egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 0.0, color);
+                    }
+                    // セット番号
+                    ui.label(format!("#{set_idx}"));
+                });
+            });
+
+            // 行全体をクリックでセット選択
+            if response.response.interact(egui::Sense::click()).clicked() {
+                self.selected_palette_set = set_idx;
+                changed = true;
+            }
+
+            ui.add_space(4.0);
+        }
+
+        if changed {
+            self.texture_dirty = true;
+        }
+
+        ui.separator();
+        ui.add_space(4.0);
+        ui.label(format!("選択中: #{}", self.selected_palette_set));
+
+        ui.add_space(8.0);
+        ui.label("キーボード:");
+        ui.label("Z/X/C/V: セット 0〜3");
+        ui.label("PgUp/PgDn: バンク移動");
+    }
+
+    // ── キーボード操作 ──────────────────────────────────────────────
+
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let Some(rom) = &self.rom else { return };
-        if rom.chr_rom.is_empty() { return };
+        if rom.chr_rom.is_empty() { return }
         let total = bank_count(&rom.chr_rom);
 
         ctx.input(|i| {
+            // バンク移動
             if i.key_pressed(egui::Key::PageUp) && self.bank_offset >= 0x1000 {
                 self.bank_offset -= 0x1000;
                 self.texture_dirty = true;
             }
             if i.key_pressed(egui::Key::PageDown) && self.bank_offset / 0x1000 + 1 < total {
                 self.bank_offset += 0x1000;
+                self.texture_dirty = true;
+            }
+
+            // パレットセット選択
+            let new_set = if i.key_pressed(egui::Key::Z) { Some(0) }
+                else if i.key_pressed(egui::Key::X) { Some(1) }
+                else if i.key_pressed(egui::Key::C) { Some(2) }
+                else if i.key_pressed(egui::Key::V) { Some(3) }
+                else { None };
+
+            if let Some(set) = new_set {
+                self.selected_palette_set = set;
                 self.texture_dirty = true;
             }
         });

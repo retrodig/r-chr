@@ -1,12 +1,5 @@
 use egui::ColorImage;
-
-/// グレースケールマッピング: カラーインデックス 0〜3 → RGB
-const GRAYSCALE: [[u8; 3]; 4] = [
-    [0,   0,   0  ],  // 0: 黒
-    [85,  85,  85 ],  // 1: 濃灰
-    [170, 170, 170],  // 2: 薄灰
-    [255, 255, 255],  // 3: 白
-];
+use crate::palette::DatPalette;
 
 /// 2BPP NES 形式で 16バイトを 8×8 ピクセル（インデックス 0〜3）にデコード
 ///
@@ -30,10 +23,16 @@ pub fn decode_tile(data: &[u8]) -> [[u8; 8]; 8] {
 }
 
 /// CHR データの指定バイトオフセットから 256タイル分を
-/// 128×128 ピクセルの ColorImage（グレースケール）としてレンダリングする
+/// 128×128 ピクセルの ColorImage としてレンダリングする
 ///
 /// レイアウト: 16タイル × 16タイル（各タイル 8×8px）
-pub fn render_bank_image(chr_data: &[u8], bank_offset: usize) -> ColorImage {
+/// カラーは DatPalette の指定セットを使用する
+pub fn render_bank_image(
+    chr_data: &[u8],
+    bank_offset: usize,
+    palette: &DatPalette,
+    palette_set: usize,
+) -> ColorImage {
     const TILES_PER_ROW: usize = 16;
     const IMG_SIZE: usize = 128; // 16 * 8
 
@@ -55,11 +54,11 @@ pub fn render_bank_image(chr_data: &[u8], bank_offset: usize) -> ColorImage {
                 let img_x = tile_col * 8 + px;
                 let img_y = tile_row * 8 + py;
                 let color_idx = tile[py][px] as usize;
-                let rgb = GRAYSCALE[color_idx];
+                let [r, g, b] = palette.color_rgb(palette_set, color_idx);
                 let i = (img_y * IMG_SIZE + img_x) * 4;
-                rgba[i]     = rgb[0];
-                rgba[i + 1] = rgb[1];
-                rgba[i + 2] = rgb[2];
+                rgba[i]     = r;
+                rgba[i + 1] = g;
+                rgba[i + 2] = b;
                 rgba[i + 3] = 255;
             }
         }

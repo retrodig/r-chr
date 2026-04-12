@@ -1,6 +1,7 @@
 mod app;
 mod chr;
 mod nes;
+mod palette;
 
 use eframe::egui;
 
