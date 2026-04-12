@@ -59,6 +59,11 @@ pub struct RChrApp {
     is_modified: bool,
     /// 未保存変更ありで閉じようとしたときの確認ダイアログ表示フラグ
     show_close_dialog: bool,
+
+    /// アドレスジャンプ入力フィールドの内容（16進数文字列）
+    address_input: String,
+    /// マウスホイールのスクロール蓄積量（trackpad の連続スクロール対応）
+    scroll_accumulator: f32,
 }
 
 impl Default for RChrApp {
@@ -79,6 +84,8 @@ impl Default for RChrApp {
             raw_file_data: None,
             is_modified: false,
             show_close_dialog: false,
+            address_input: "000000".into(),
+            scroll_accumulator: 0.0,
         }
     }
 }
@@ -176,7 +183,7 @@ impl eframe::App for RChrApp {
                 }
                 if let Some(rom) = &self.rom {
                     if !rom.chr_rom.is_empty() {
-                        let cur = self.bank_offset / 0x1000;
+                        let cur = self.bank_offset / 0x1000 + 1;
                         let tot = bank_count(&rom.chr_rom);
                         ui.label(format!("バンク: {cur} / {tot}  |  0x{:06X}", self.bank_offset));
                         if let Some(idx) = self.selected_tile {
@@ -297,11 +304,13 @@ impl RChrApp {
     // ── バンクビュー ──────────────────────────────────────────────
 
     fn show_bank_view(&mut self, ui: &mut egui::Ui) {
+        let can_prev = self.bank_offset >= 0x1000;
+        let can_next = self.rom.as_ref().map_or(false, |r| {
+            self.bank_offset + 0x1000 < r.chr_rom.len()
+        });
+
         ui.horizontal(|ui| {
-            let can_prev = self.bank_offset >= 0x1000;
-            let can_next = self.rom.as_ref().map_or(false, |r| {
-                self.bank_offset + 0x1000 < r.chr_rom.len()
-            });
+            // ── バンク移動ボタン
             if ui.add_enabled(can_prev, egui::Button::new("◀ 前")).clicked() {
                 self.bank_offset -= 0x1000;
                 self.texture_dirty = true;
@@ -309,6 +318,35 @@ impl RChrApp {
             if ui.add_enabled(can_next, egui::Button::new("次 ▶")).clicked() {
                 self.bank_offset += 0x1000;
                 self.texture_dirty = true;
+            }
+
+            ui.separator();
+
+            // ── アドレスジャンプ入力
+            ui.label("アドレス:");
+            let addr_resp = ui.add(
+                egui::TextEdit::singleline(&mut self.address_input)
+                    .desired_width(70.0)
+                    .font(egui::TextStyle::Monospace)
+                    .hint_text("001000"),
+            );
+
+            // ジャンプ判定を address_input の上書きより先に行う
+            let enter_pressed = addr_resp.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let button_clicked = ui.button("移動").clicked();
+
+            if enter_pressed || button_clicked {
+                // ユーザーが入力した内容でジャンプ
+                self.jump_to_address();
+                // テキストフィールドからフォーカスを外す
+                ui.ctx().memory_mut(|m| m.surrender_focus(addr_resp.id));
+            } else if !addr_resp.has_focus() {
+                // 編集中でなければ選択タイルのアドレス（なければバンク先頭）を表示
+                self.address_input = match self.selected_tile {
+                    Some(idx) => format!("{:06X}", self.bank_offset + idx * 16),
+                    None      => format!("{:06X}", self.bank_offset),
+                };
             }
         });
         ui.add_space(4.0);
@@ -351,6 +389,33 @@ impl RChrApp {
                     [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
                     egui::Stroke::new(1.0, grid_color),
                 );
+            }
+
+            // ── マウスホイールでバンク移動
+            if response.hovered() {
+                let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+                self.scroll_accumulator += scroll_y;
+                // trackpad の連続スクロールに対応: 40px 蓄積でバンク移動
+                const THRESHOLD: f32 = 40.0;
+                while self.scroll_accumulator >= THRESHOLD {
+                    self.scroll_accumulator -= THRESHOLD;
+                    if self.bank_offset >= 0x1000 {
+                        self.bank_offset -= 0x1000;
+                        self.texture_dirty = true;
+                    }
+                }
+                while self.scroll_accumulator <= -THRESHOLD {
+                    self.scroll_accumulator += THRESHOLD;
+                    if let Some(rom) = &self.rom {
+                        if self.bank_offset + 0x1000 < rom.chr_rom.len() {
+                            self.bank_offset += 0x1000;
+                            self.texture_dirty = true;
+                        }
+                    }
+                }
+            } else {
+                // ホバー外に出たらリセット（蓄積を引き継がない）
+                self.scroll_accumulator = 0.0;
             }
 
             // 選択タイルのハイライト
@@ -507,6 +572,32 @@ impl RChrApp {
         }
     }
 
+    /// アドレス入力フィールドの内容をパースして該当バンク・タイルへジャンプする
+    fn jump_to_address(&mut self) {
+        let raw = self.address_input.trim()
+            .trim_start_matches("0x")
+            .trim_start_matches("0X");
+        if let Ok(addr) = usize::from_str_radix(raw, 16) {
+            let bank_addr  = addr & !0xFFF;          // バンク先頭（0x1000 境界）
+            let within_bank = addr & 0xFFF;           // バンク内オフセット
+            let tile_idx   = (within_bank / 16).min(255); // タイルインデックス（0〜255）
+            let tile_addr  = bank_addr + tile_idx * 16;   // タイル先頭アドレス
+
+            if let Some(rom) = &self.rom {
+                if bank_addr < rom.chr_rom.len() {
+                    self.bank_offset  = bank_addr;
+                    self.selected_tile = Some(tile_idx);
+                    self.texture_dirty = true;
+                    // フィールドにタイル先頭アドレスを表示（入力値と近い値でフィードバック）
+                    self.address_input = format!("{:06X}", tile_addr);
+                    return;
+                }
+            }
+        }
+        // パース失敗・範囲外の場合は現在値に戻す
+        self.address_input = format!("{:06X}", self.bank_offset);
+    }
+
     fn do_undo(&mut self) {
         let Some((offset, saved)) = self.undo_stack.pop() else { return };
         let Some(rom) = &mut self.rom else { return };
@@ -604,6 +695,8 @@ impl RChrApp {
                 // 保存せず閉じる
                 if ui.button("🗑 保存せず閉じる").clicked() {
                     self.show_close_dialog = false;
+                    // Close 後に close_requested が再発火したとき CancelClose しないよう先にクリア
+                    self.is_modified = false;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
 
