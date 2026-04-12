@@ -6,6 +6,8 @@ use crate::palette::{DatPalette, MasterPalette, NES_PALETTE};
 /// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
 const DEFAULT_PAL: &[u8] = include_bytes!("../assets/rchr.pal");
 const DEFAULT_DAT: &[u8] = include_bytes!("../assets/rchr.dat");
+/// NES 標準 64色パレット（リセット用）
+const NES_PAL: &[u8] = include_bytes!("../assets/nes.pal");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
@@ -201,10 +203,11 @@ impl eframe::App for RChrApp {
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("マスターパレットをリセット").clicked() {
-                        self.master_palette = MasterPalette::default();
+                    if ui.button("マスターパレットをリセット (NES 標準)").clicked() {
+                        self.master_palette = MasterPalette::from_pal_bytes(NES_PAL)
+                            .unwrap_or_default();
                         self.texture_dirty = true;
-                        self.status_msg = Some("マスターパレットをリセットしました".into());
+                        self.status_msg = Some("NES 標準パレットにリセットしました".into());
                         ui.close_menu();
                     }
                 });
