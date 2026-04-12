@@ -1,3 +1,34 @@
+/// ファイル種別を統一するラッパー
+pub enum RomData {
+    /// iNES (.nes) ファイル
+    Nes(NesRom),
+    /// 生 CHR バイナリ (.bin) ファイル
+    Bin(Vec<u8>),
+}
+
+impl RomData {
+    /// CHR データへの不変参照
+    pub fn chr_data(&self) -> &[u8] {
+        match self {
+            RomData::Nes(rom) => &rom.chr_rom,
+            RomData::Bin(data) => data,
+        }
+    }
+
+    /// CHR データへの可変参照
+    pub fn chr_data_mut(&mut self) -> &mut [u8] {
+        match self {
+            RomData::Nes(rom) => &mut rom.chr_rom,
+            RomData::Bin(data) => data,
+        }
+    }
+
+    /// NES ファイルかどうか
+    pub fn is_nes(&self) -> bool {
+        matches!(self, RomData::Nes(_))
+    }
+}
+
 /// iNES ヘッダ（16バイト）のパース結果
 #[derive(Debug, Clone)]
 pub struct NesHeader {

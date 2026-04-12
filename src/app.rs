@@ -1,6 +1,6 @@
 use eframe::egui;
 use crate::chr::{bank_count, decode_tile, encode_dot, render_bank_image};
-use crate::nes::{NesRom, parse_nes};
+use crate::nes::{RomData, parse_nes};
 use crate::palette::DatPalette;
 
 /// 起動時に日本語フォントをセットアップする
@@ -33,7 +33,7 @@ enum EditorAction {
 // ── アプリ状態 ─────────────────────────────────────────────────────
 
 pub struct RChrApp {
-    rom: Option<NesRom>,
+    rom: Option<RomData>,
     file_name: Option<String>,
     error_msg: Option<String>,
 
@@ -96,9 +96,9 @@ impl eframe::App for RChrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
-                if !rom.chr_rom.is_empty() {
+                if !rom.chr_data().is_empty() {
                     let image = render_bank_image(
-                        &rom.chr_rom,
+                        rom.chr_data(),
                         self.bank_offset,
                         &self.dat_palette,
                         self.selected_palette_set,
@@ -182,9 +182,9 @@ impl eframe::App for RChrApp {
                     ui.separator();
                 }
                 if let Some(rom) = &self.rom {
-                    if !rom.chr_rom.is_empty() {
+                    if !rom.chr_data().is_empty() {
                         let cur = self.bank_offset / 0x1000 + 1;
-                        let tot = bank_count(&rom.chr_rom);
+                        let tot = bank_count(rom.chr_data());
                         ui.label(format!("バンク: {cur} / {tot}  |  0x{:06X}", self.bank_offset));
                         if let Some(idx) = self.selected_tile {
                             ui.separator();
@@ -236,7 +236,7 @@ impl eframe::App for RChrApp {
                     });
                 }
                 Some(rom) => {
-                    if rom.chr_rom.is_empty() {
+                    if rom.chr_data().is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(20.0);
                             ui.colored_label(
@@ -265,40 +265,58 @@ impl eframe::App for RChrApp {
 impl RChrApp {
     fn open_file(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("NES ROM", &["nes"])
+            .add_filter("NES / BIN", &["nes", "bin"])
             .add_filter("すべてのファイル", &["*"])
             .pick_file()
         else {
             return;
         };
 
-        self.file_name = Some(
-            path.file_name().unwrap_or_default().to_string_lossy().to_string(),
-        );
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
 
-        match std::fs::read(&path) {
+        let data = match std::fs::read(&path) {
             Err(e) => {
                 self.error_msg = Some(format!("読み込み失敗: {e}"));
-                self.rom = None;
+                return;
             }
-            Ok(data) => match parse_nes(&data) {
+            Ok(d) => d,
+        };
+
+        let rom_data = if ext == "bin" {
+            // 生 CHR バイナリ：ヘッダなしでそのまま使用
+            if data.is_empty() {
+                self.error_msg = Some("BIN ファイルが空です".into());
+                return;
+            }
+            self.raw_file_data = None;
+            RomData::Bin(data)
+        } else {
+            // NES (iNES) フォーマット
+            match parse_nes(&data) {
                 Err(e) => {
                     self.error_msg = Some(e.to_string());
-                    self.rom = None;
+                    return;
                 }
                 Ok(rom) => {
-                    self.error_msg = None;
-                    self.bank_offset = 0;
-                    self.selected_tile = None;
-                    self.undo_stack.clear();
-                    self.file_path = Some(path);
                     self.raw_file_data = Some(data);
-                    self.is_modified = false;
-                    self.rom = Some(rom);
-                    self.texture_dirty = true;
+                    RomData::Nes(rom)
                 }
-            },
-        }
+            }
+        };
+
+        self.error_msg = None;
+        self.file_name = Some(file_name);
+        self.bank_offset = 0;
+        self.selected_tile = None;
+        self.undo_stack.clear();
+        self.file_path = Some(path);
+        self.is_modified = false;
+        self.rom = Some(rom_data);
+        self.texture_dirty = true;
     }
 
     // ── バンクビュー ──────────────────────────────────────────────
@@ -306,7 +324,7 @@ impl RChrApp {
     fn show_bank_view(&mut self, ui: &mut egui::Ui) {
         let can_prev = self.bank_offset >= 0x1000;
         let can_next = self.rom.as_ref().map_or(false, |r| {
-            self.bank_offset + 0x1000 < r.chr_rom.len()
+            self.bank_offset + 0x1000 < r.chr_data().len()
         });
 
         ui.horizontal(|ui| {
@@ -407,7 +425,7 @@ impl RChrApp {
                 while self.scroll_accumulator <= -THRESHOLD {
                     self.scroll_accumulator += THRESHOLD;
                     if let Some(rom) = &self.rom {
-                        if self.bank_offset + 0x1000 < rom.chr_rom.len() {
+                        if self.bank_offset + 0x1000 < rom.chr_data().len() {
                             self.bank_offset += 0x1000;
                             self.texture_dirty = true;
                         }
@@ -477,9 +495,9 @@ impl RChrApp {
         };
         let Some(rom) = &self.rom else { return None };
         let tile_offset = self.bank_offset + tile_idx * 16;
-        if tile_offset + 16 > rom.chr_rom.len() { return None }
+        if tile_offset + 16 > rom.chr_data().len() { return None }
 
-        let tile = decode_tile(&rom.chr_rom[tile_offset..tile_offset + 16]);
+        let tile = decode_tile(&rom.chr_data()[tile_offset..tile_offset + 16]);
 
         // ── ドットキャンバス
         let available = ui.available_size();
@@ -553,10 +571,10 @@ impl RChrApp {
             }
             EditorAction::PaintDot { tile_offset, px, py, color, push_undo } => {
                 let Some(rom) = &mut self.rom else { return };
-                if tile_offset + 16 > rom.chr_rom.len() { return }
+                if tile_offset + 16 > rom.chr_data().len() { return }
 
                 if push_undo {
-                    let saved: [u8; 16] = rom.chr_rom[tile_offset..tile_offset + 16]
+                    let saved: [u8; 16] = rom.chr_data()[tile_offset..tile_offset + 16]
                         .try_into()
                         .unwrap();
                     if self.undo_stack.len() >= 100 {
@@ -565,7 +583,7 @@ impl RChrApp {
                     self.undo_stack.push((tile_offset, saved));
                 }
 
-                encode_dot(&mut rom.chr_rom[tile_offset..tile_offset + 16], px, py, color);
+                encode_dot(&mut rom.chr_data_mut()[tile_offset..tile_offset + 16], px, py, color);
                 self.is_modified = true;
                 self.texture_dirty = true;
             }
@@ -584,7 +602,7 @@ impl RChrApp {
             let tile_addr  = bank_addr + tile_idx * 16;   // タイル先頭アドレス
 
             if let Some(rom) = &self.rom {
-                if bank_addr < rom.chr_rom.len() {
+                if bank_addr < rom.chr_data().len() {
                     self.bank_offset  = bank_addr;
                     self.selected_tile = Some(tile_idx);
                     self.texture_dirty = true;
@@ -601,8 +619,8 @@ impl RChrApp {
     fn do_undo(&mut self) {
         let Some((offset, saved)) = self.undo_stack.pop() else { return };
         let Some(rom) = &mut self.rom else { return };
-        if offset + 16 <= rom.chr_rom.len() {
-            rom.chr_rom[offset..offset + 16].copy_from_slice(&saved);
+        if offset + 16 <= rom.chr_data().len() {
+            rom.chr_data_mut()[offset..offset + 16].copy_from_slice(&saved);
             self.texture_dirty = true;
         }
     }
@@ -617,12 +635,17 @@ impl RChrApp {
 
     /// ダイアログで保存先を選んで保存する
     fn save_file_as(&mut self) -> Result<(), String> {
-        let default_name = self.file_name.clone().unwrap_or_else(|| "output.nes".into());
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("NES ROM", &["nes"])
-            .set_file_name(&default_name)
-            .save_file()
-        else {
+        let is_bin = self.rom.as_ref().map_or(false, |r| !r.is_nes());
+        let default_name = self.file_name.clone().unwrap_or_else(|| {
+            if is_bin { "output.bin".into() } else { "output.nes".into() }
+        });
+        let mut dialog = rfd::FileDialog::new().set_file_name(&default_name);
+        dialog = if is_bin {
+            dialog.add_filter("CHR バイナリ", &["bin"])
+        } else {
+            dialog.add_filter("NES ROM", &["nes"])
+        };
+        let Some(path) = dialog.save_file() else {
             return Ok(()); // キャンセル
         };
         self.write_to_path(&path)?;
@@ -634,19 +657,26 @@ impl RChrApp {
         Ok(())
     }
 
-    /// CHR データを raw_file_data に書き戻してファイルへ出力する
+    /// CHR データをファイルへ出力する（NES: 元データに書き戻し / BIN: CHR データをそのまま書き出し）
     fn write_to_path(&mut self, path: &std::path::Path) -> Result<(), String> {
         let rom = self.rom.as_ref().ok_or("ROM が読み込まれていません")?;
-        let raw = self.raw_file_data.as_mut().ok_or("元ファイルデータがありません")?;
 
-        let start = rom.chr_data_offset;
-        let end   = start + rom.chr_rom.len();
-        if end > raw.len() {
-            return Err("ファイルサイズが不正です".into());
+        match rom {
+            RomData::Nes(nes_rom) => {
+                let raw = self.raw_file_data.as_mut().ok_or("元ファイルデータがありません")?;
+                let start = nes_rom.chr_data_offset;
+                let end   = start + nes_rom.chr_rom.len();
+                if end > raw.len() {
+                    return Err("ファイルサイズが不正です".into());
+                }
+                raw[start..end].copy_from_slice(&nes_rom.chr_rom);
+                std::fs::write(path, raw as &[u8]).map_err(|e| format!("保存失敗: {e}"))?;
+            }
+            RomData::Bin(chr_data) => {
+                std::fs::write(path, chr_data).map_err(|e| format!("保存失敗: {e}"))?;
+            }
         }
-        raw[start..end].copy_from_slice(&rom.chr_rom);
 
-        std::fs::write(path, raw as &[u8]).map_err(|e| format!("保存失敗: {e}"))?;
         self.is_modified = false;
         Ok(())
     }
@@ -752,9 +782,9 @@ impl RChrApp {
     // ── キーボード操作 ────────────────────────────────────────────
 
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
-        let chr_empty = self.rom.as_ref().map_or(true, |r| r.chr_rom.is_empty());
+        let chr_empty = self.rom.as_ref().map_or(true, |r| r.chr_data().is_empty());
         if chr_empty { return }
-        let total = self.rom.as_ref().map_or(0, |r| bank_count(&r.chr_rom));
+        let total = self.rom.as_ref().map_or(0, |r| bank_count(r.chr_data()));
 
         let mut bank_delta: i32 = 0;
         let mut new_palette_set: Option<usize> = None;
