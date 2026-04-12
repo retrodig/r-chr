@@ -1,4 +1,5 @@
 original
+original_docs
 
 # Node dependencies
 node_modules
@@ -8,3 +9,8 @@ package-lock.json
 .DS_Store
 .fleet
 .idea
+
+
+# Added by cargo
+
+/target
