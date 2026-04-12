@@ -9,6 +9,8 @@ const DEFAULT_PAL: &[u8] = include_bytes!("../assets/rchr.pal");
 const DEFAULT_DAT: &[u8] = include_bytes!("../assets/rchr.dat");
 /// NES 標準 64色パレット（リセット用）
 const NES_PAL: &[u8] = include_bytes!("../assets/nes.pal");
+/// 起動時に表示するデフォルトドット絵（R-CHR ロゴ入り CHR バイナリ）
+const DEFAULT_BIN: &[u8] = include_bytes!("../assets/rchr.bin");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
@@ -153,21 +155,21 @@ pub struct RChrApp {
 impl Default for RChrApp {
     fn default() -> Self {
         Self {
-            rom: None,
-            file_name: None,
+            rom: Some(RomData::Bin(DEFAULT_BIN.to_vec())),
+            file_name: Some("rchr.bin".into()),
             error_msg: None,
             scroll_addr: 0,
             pending_scroll_addr: None,
             scroll_top_row: 0,
             visible_tile_rows: 0,
             bank_texture: None,
-            texture_dirty: false,
+            texture_dirty: true,
             focus_size: FocusSize::S8,
             dat_palette: DatPalette::from_dat_bytes(DEFAULT_DAT).unwrap_or_default(),
             master_palette: MasterPalette::from_pal_bytes(DEFAULT_PAL).unwrap_or_default(),
             selected_palette_set: 0,
             status_msg: None,
-            selected_tile: None,
+            selected_tile: Some(0),
             drawing_color_idx: 1,
             undo_stack: Vec::new(),
             file_path: None,
