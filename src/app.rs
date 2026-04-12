@@ -150,6 +150,9 @@ pub struct RChrApp {
 
     /// PNG インポートダイアログの状態
     png_import_dialog: Option<PngImportDialog>,
+
+    /// ダークモード有効フラグ
+    dark_mode: bool,
 }
 
 impl Default for RChrApp {
@@ -179,6 +182,7 @@ impl Default for RChrApp {
             address_input: "000000".into(),
             editing_palette_cell: None,
             png_import_dialog: None,
+            dark_mode: true,
         }
     }
 }
@@ -187,6 +191,12 @@ impl Default for RChrApp {
 
 impl eframe::App for RChrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_visuals(if self.dark_mode {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        });
+
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
                 if !rom.chr_data().is_empty() {
@@ -265,6 +275,11 @@ impl eframe::App for RChrApp {
                     let can_undo = !self.undo_stack.is_empty();
                     if ui.add_enabled(can_undo, egui::Button::new("元に戻す  ⌘Z / Ctrl+Z")).clicked() {
                         self.do_undo();
+                        ui.close_menu();
+                    }
+                });
+                ui.menu_button("表示", |ui| {
+                    if ui.checkbox(&mut self.dark_mode, "ダークモード").clicked() {
                         ui.close_menu();
                     }
                 });
