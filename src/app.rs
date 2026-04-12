@@ -1,4 +1,5 @@
 use eframe::egui;
+use crate::chr::{bank_count, render_bank_image};
 use crate::nes::{NesRom, parse_nes};
 
 /// 起動時に日本語フォントをセットアップする
@@ -10,7 +11,6 @@ pub fn setup_fonts(ctx: &egui::Context) {
             "jp_font".to_owned(),
             egui::FontData::from_owned(font_data).into(),
         );
-        // 既存フォントの後ろに追加（日本語グリフのフォールバックとして使う）
         fonts
             .families
             .get_mut(&egui::FontFamily::Proportional)
@@ -26,12 +26,16 @@ pub fn setup_fonts(ctx: &egui::Context) {
 }
 
 pub struct RChrApp {
-    /// 読み込んだ ROM（None = 未読み込み）
     rom: Option<NesRom>,
-    /// 表示中のファイル名
     file_name: Option<String>,
-    /// エラーメッセージ
     error_msg: Option<String>,
+
+    /// 現在表示中のバンクオフセット（バイト単位、0x1000 の倍数）
+    bank_offset: usize,
+    /// バンクビュー用テクスチャ
+    bank_texture: Option<egui::TextureHandle>,
+    /// テクスチャの再生成が必要かどうか
+    texture_dirty: bool,
 }
 
 impl Default for RChrApp {
@@ -40,12 +44,30 @@ impl Default for RChrApp {
             rom: None,
             file_name: None,
             error_msg: None,
+            bank_offset: 0,
+            bank_texture: None,
+            texture_dirty: false,
         }
     }
 }
 
 impl eframe::App for RChrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // テクスチャの再生成（ROM 読み込み・バンク移動後）
+        if self.texture_dirty {
+            if let Some(rom) = &self.rom {
+                if !rom.chr_rom.is_empty() {
+                    let image = render_bank_image(&rom.chr_rom, self.bank_offset);
+                    self.bank_texture = Some(ctx.load_texture(
+                        "bank_view",
+                        image,
+                        egui::TextureOptions::NEAREST, // ドット絵なのでニアレストネイバー
+                    ));
+                }
+            }
+            self.texture_dirty = false;
+        }
+
         // メニューバー
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -60,16 +82,27 @@ impl eframe::App for RChrApp {
 
         // ステータスバー
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            if let Some(name) = &self.file_name {
-                ui.label(format!("ファイル: {name}"));
-            } else {
-                ui.label("ファイルを開いてください");
-            }
+            ui.horizontal(|ui| {
+                if let Some(name) = &self.file_name {
+                    ui.label(format!("ファイル: {name}"));
+                    ui.separator();
+                }
+                if let Some(rom) = &self.rom {
+                    if !rom.chr_rom.is_empty() {
+                        let current_bank = self.bank_offset / 0x1000;
+                        let total_banks = bank_count(&rom.chr_rom);
+                        ui.label(format!(
+                            "バンク: {current_bank} / {total_banks}  |  オフセット: 0x{:06X}",
+                            self.bank_offset
+                        ));
+                    }
+                }
+            });
         });
 
         // メインパネル
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(err) = &self.error_msg.clone() {
+            if let Some(err) = self.error_msg.clone() {
                 ui.colored_label(egui::Color32::RED, format!("エラー: {err}"));
                 if ui.button("閉じる").clicked() {
                     self.error_msg = None;
@@ -84,10 +117,23 @@ impl eframe::App for RChrApp {
                     });
                 }
                 Some(rom) => {
-                    self.show_rom_info(ui, rom);
+                    if rom.chr_rom.is_empty() {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(20.0);
+                            ui.colored_label(
+                                egui::Color32::YELLOW,
+                                "この ROM は CHR-RAM を使用しています（CHR データなし）",
+                            );
+                        });
+                        return;
+                    }
+                    self.show_bank_view(ui);
                 }
             }
         });
+
+        // キーボードでバンク移動
+        self.handle_keyboard(ctx);
     }
 }
 
@@ -120,70 +166,86 @@ impl RChrApp {
                 }
                 Ok(rom) => {
                     self.error_msg = None;
+                    self.bank_offset = 0;
                     self.rom = Some(rom);
+                    self.texture_dirty = true;
                 }
             },
         }
     }
 
-    fn show_rom_info(&self, ui: &mut egui::Ui, rom: &NesRom) {
-        let h = &rom.header;
-
-        egui::Grid::new("rom_info")
-            .num_columns(2)
-            .striped(true)
-            .spacing([16.0, 4.0])
-            .show(ui, |ui| {
-                ui.strong("マッパー");
-                ui.label(format!("{}", h.mapper));
-                ui.end_row();
-
-                ui.strong("PRG-ROM");
-                ui.label(format!(
-                    "{} バンク  ({} KB)",
-                    h.prg_rom_banks,
-                    h.prg_rom_size() / 1024
-                ));
-                ui.end_row();
-
-                ui.strong("CHR-ROM");
-                if h.chr_rom_banks == 0 {
-                    ui.colored_label(egui::Color32::YELLOW, "CHR-RAM（ROM なし）");
-                } else {
-                    ui.label(format!(
-                        "{} バンク  ({} KB)",
-                        h.chr_rom_banks,
-                        h.chr_rom_size() / 1024
-                    ));
-                }
-                ui.end_row();
-
-                ui.strong("ミラーリング");
-                ui.label(if h.vertical_mirroring { "垂直" } else { "水平" });
-                ui.end_row();
-
-                ui.strong("バッテリー");
-                ui.label(if h.has_battery { "あり" } else { "なし" });
-                ui.end_row();
-
-                ui.strong("ファイルサイズ");
-                ui.label(format!(
-                    "{} バイト ({} KB)",
-                    rom.prg_rom.len() + rom.chr_rom.len(),
-                    (rom.prg_rom.len() + rom.chr_rom.len()) / 1024
-                ));
-                ui.end_row();
+    fn show_bank_view(&mut self, ui: &mut egui::Ui) {
+        // バンク移動ボタン
+        ui.horizontal(|ui| {
+            let can_prev = self.bank_offset >= 0x1000;
+            let can_next = self.rom.as_ref().map_or(false, |r| {
+                self.bank_offset + 0x1000 < r.chr_rom.len()
             });
 
-        ui.add_space(12.0);
+            if ui.add_enabled(can_prev, egui::Button::new("◀ 前のバンク")).clicked() {
+                self.bank_offset -= 0x1000;
+                self.texture_dirty = true;
+            }
+            if ui.add_enabled(can_next, egui::Button::new("次のバンク ▶")).clicked() {
+                self.bank_offset += 0x1000;
+                self.texture_dirty = true;
+            }
+        });
 
-        if h.chr_rom_banks == 0 {
-            ui.label("※ CHR-RAM のため、CHR データは ROM に含まれていません。");
-        } else {
-            ui.label(format!(
-                "CHR データ: {} バイト読み込み済み",
-                rom.chr_rom.len()
-            ));
+        ui.add_space(8.0);
+
+        // バンクビュー（テクスチャ表示）
+        if let Some(texture) = &self.bank_texture {
+            let available = ui.available_size();
+            // アスペクト比 1:1 を保ちつつ、利用可能な領域に収める
+            let size = available.x.min(available.y).min(512.0);
+
+            let response = ui.add(
+                egui::Image::new(texture)
+                    .fit_to_exact_size(egui::vec2(size, size))
+                    .sense(egui::Sense::click()),
+            );
+
+            // グリッド線をタイル境界（8×8）に描画
+            self.draw_grid(ui, response.rect, size);
         }
+    }
+
+    /// バンクビュー上にタイルグリッド線を描画する
+    fn draw_grid(&self, ui: &egui::Ui, rect: egui::Rect, view_size: f32) {
+        let painter = ui.painter();
+        let tile_px = view_size / 16.0; // 1タイルあたりの表示ピクセル数
+
+        let grid_color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40);
+
+        for i in 1..16 {
+            let x = rect.left() + tile_px * i as f32;
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(1.0, grid_color),
+            );
+            let y = rect.top() + tile_px * i as f32;
+            painter.line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                egui::Stroke::new(1.0, grid_color),
+            );
+        }
+    }
+
+    fn handle_keyboard(&mut self, ctx: &egui::Context) {
+        let Some(rom) = &self.rom else { return };
+        if rom.chr_rom.is_empty() { return };
+        let total = bank_count(&rom.chr_rom);
+
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::PageUp) && self.bank_offset >= 0x1000 {
+                self.bank_offset -= 0x1000;
+                self.texture_dirty = true;
+            }
+            if i.key_pressed(egui::Key::PageDown) && self.bank_offset / 0x1000 + 1 < total {
+                self.bank_offset += 0x1000;
+                self.texture_dirty = true;
+            }
+        });
     }
 }

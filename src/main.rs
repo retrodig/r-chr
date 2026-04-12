@@ -1,4 +1,5 @@
 mod app;
+mod chr;
 mod nes;
 
 use eframe::egui;
