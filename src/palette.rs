@@ -1,3 +1,5 @@
+use eframe::egui;
+
 /// NES ハードウェアの標準 64色マスターパレット（RGB各 8bit）
 /// 参考: https://www.nesdev.org/wiki/PPU_palettes
 pub const NES_PALETTE: [[u8; 3]; 64] = [
@@ -67,10 +69,39 @@ pub const NES_PALETTE: [[u8; 3]; 64] = [
     [0,   0,   0  ], // 0x3F
 ];
 
+/// NES マスターパレット（64色 RGB）
+///
+/// デフォルトは NES_PALETTE 定数。
+/// PAL ファイルを読み込むことで任意の RGB 値に差し替えられる。
+#[derive(Clone)]
+pub struct MasterPalette {
+    pub colors: [[u8; 3]; 64],
+}
+
+impl Default for MasterPalette {
+    fn default() -> Self {
+        Self { colors: NES_PALETTE }
+    }
+}
+
+impl MasterPalette {
+    /// 192 バイトの .pal データ（64色 × RGB 3バイト）からパース
+    pub fn from_pal_bytes(data: &[u8]) -> Option<Self> {
+        if data.len() < 192 {
+            return None;
+        }
+        let mut colors = [[0u8; 3]; 64];
+        for i in 0..64 {
+            colors[i] = [data[i * 3], data[i * 3 + 1], data[i * 3 + 2]];
+        }
+        Some(Self { colors })
+    }
+}
+
 /// DAT パレット: 4セット × 4色 の NES パレットインデックス
 ///
 /// NES の PPU パレットメモリに相当する。
-/// 各値は NES_PALETTE のインデックス（0x00〜0x3F）。
+/// 各値は MasterPalette のインデックス（0x00〜0x3F）。
 #[derive(Clone)]
 pub struct DatPalette {
     /// sets[set_index][color_index] = NES パレットインデックス
@@ -92,16 +123,41 @@ impl Default for DatPalette {
 
 impl DatPalette {
     /// 指定セット・カラーインデックスの RGB を返す
-    pub fn color_rgb(&self, set: usize, color_idx: usize) -> [u8; 3] {
+    pub fn color_rgb(&self, set: usize, color_idx: usize, master: &MasterPalette) -> [u8; 3] {
         let nes_idx = self.sets[set][color_idx] as usize & 0x3F;
-        NES_PALETTE[nes_idx]
+        master.colors[nes_idx]
     }
 
     /// egui の Color32 で返す
-    pub fn color32(&self, set: usize, color_idx: usize) -> egui::Color32 {
-        let [r, g, b] = self.color_rgb(set, color_idx);
+    pub fn color32(&self, set: usize, color_idx: usize, master: &MasterPalette) -> egui::Color32 {
+        let [r, g, b] = self.color_rgb(set, color_idx, master);
         egui::Color32::from_rgb(r, g, b)
     }
-}
 
-use eframe::egui;
+    /// 16バイト以上の .dat データからパース（4セット × 4色）
+    ///
+    /// YY-CHR 互換フォーマット: 各バイトが NES パレットインデックス（0x00〜0x3F）
+    pub fn from_dat_bytes(data: &[u8]) -> Option<Self> {
+        if data.len() < 16 {
+            return None;
+        }
+        let mut sets = [[0u8; 4]; 4];
+        for s in 0..4 {
+            for c in 0..4 {
+                sets[s][c] = data[s * 4 + c] & 0x3F;
+            }
+        }
+        Some(Self { sets })
+    }
+
+    /// 現在のパレットを 16バイトの .dat 形式で返す
+    pub fn to_dat_bytes(&self) -> [u8; 16] {
+        let mut out = [0u8; 16];
+        for s in 0..4 {
+            for c in 0..4 {
+                out[s * 4 + c] = self.sets[s][c];
+            }
+        }
+        out
+    }
+}

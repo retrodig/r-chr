@@ -1,7 +1,11 @@
 use eframe::egui;
 use crate::chr::{bank_count, decode_tile, encode_dot, render_bank_image};
 use crate::nes::{RomData, parse_nes};
-use crate::palette::{DatPalette, NES_PALETTE};
+use crate::palette::{DatPalette, MasterPalette, NES_PALETTE};
+
+/// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
+const DEFAULT_PAL: &[u8] = include_bytes!("../assets/rchr.pal");
+const DEFAULT_DAT: &[u8] = include_bytes!("../assets/rchr.dat");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
@@ -42,7 +46,11 @@ pub struct RChrApp {
     texture_dirty: bool,
 
     dat_palette: DatPalette,
+    master_palette: MasterPalette,
     selected_palette_set: usize,
+
+    /// ステータスバーに表示する一時メッセージ
+    status_msg: Option<String>,
 
     selected_tile: Option<usize>,
 
@@ -78,8 +86,10 @@ impl Default for RChrApp {
             bank_offset: 0,
             bank_texture: None,
             texture_dirty: false,
-            dat_palette: DatPalette::default(),
+            dat_palette: DatPalette::from_dat_bytes(DEFAULT_DAT).unwrap_or_default(),
+            master_palette: MasterPalette::from_pal_bytes(DEFAULT_PAL).unwrap_or_default(),
             selected_palette_set: 0,
+            status_msg: None,
             selected_tile: None,
             drawing_color_idx: 1,
             undo_stack: Vec::new(),
@@ -106,6 +116,7 @@ impl eframe::App for RChrApp {
                         self.bank_offset,
                         &self.dat_palette,
                         self.selected_palette_set,
+                        &self.master_palette,
                     );
                     self.bank_texture = Some(ctx.load_texture(
                         "bank_view",
@@ -175,6 +186,28 @@ impl eframe::App for RChrApp {
                         ui.close_menu();
                     }
                 });
+                ui.menu_button("パレット", |ui| {
+                    if ui.button("PAL ファイルを開く…").clicked() {
+                        self.load_pal_file();
+                        ui.close_menu();
+                    }
+                    if ui.button("DAT ファイルを開く…").clicked() {
+                        self.load_dat_file();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("DAT ファイルを保存…").clicked() {
+                        self.save_dat_file();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("マスターパレットをリセット").clicked() {
+                        self.master_palette = MasterPalette::default();
+                        self.texture_dirty = true;
+                        self.status_msg = Some("マスターパレットをリセットしました".into());
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
@@ -196,6 +229,11 @@ impl eframe::App for RChrApp {
                             ui.label(format!("タイル: {idx} (0x{addr:06X})"));
                         }
                     }
+                }
+                if let Some(msg) = &self.status_msg {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(100, 220, 100)));
+                    });
                 }
             });
         });
@@ -475,7 +513,7 @@ impl RChrApp {
             ui.label("描画色:");
             ui.spacing_mut().item_spacing.x = 3.0;
             for c in 0..4u8 {
-                let fill = self.dat_palette.color32(self.selected_palette_set, c as usize);
+                let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
                 let is_active = self.drawing_color_idx == c;
                 let (rect, resp) =
                     ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
@@ -521,7 +559,7 @@ impl RChrApp {
 
         for py in 0..8usize {
             for px in 0..8usize {
-                let fill = self.dat_palette.color32(self.selected_palette_set, tile[py][px] as usize);
+                let fill = self.dat_palette.color32(self.selected_palette_set, tile[py][px] as usize, &self.master_palette);
                 let dot_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.left() + px as f32 * dot_size, rect.top() + py as f32 * dot_size),
                     egui::vec2(dot_size, dot_size),
@@ -690,6 +728,87 @@ impl RChrApp {
         Ok(())
     }
 
+    // ── PAL / DAT パレットファイル操作 ───────────────────────────
+
+    /// .pal ファイル（64色 × RGB 3バイト = 192バイト）を読み込む
+    fn load_pal_file(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("NES パレット", &["pal"])
+            .add_filter("すべてのファイル", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        match std::fs::read(&path) {
+            Err(e) => {
+                self.error_msg = Some(format!("読み込み失敗: {e}"));
+            }
+            Ok(data) => match MasterPalette::from_pal_bytes(&data) {
+                None => {
+                    self.error_msg = Some(
+                        format!("PAL ファイルが短すぎます（{}バイト、192バイト必要）", data.len())
+                    );
+                }
+                Some(master) => {
+                    self.master_palette = master;
+                    self.texture_dirty = true;
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    self.status_msg = Some(format!("PAL 読み込み: {name}"));
+                }
+            },
+        }
+    }
+
+    /// .dat ファイル（4セット × 4色 = 16バイト以上）を読み込む
+    fn load_dat_file(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("DAT パレット", &["dat"])
+            .add_filter("すべてのファイル", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+        match std::fs::read(&path) {
+            Err(e) => {
+                self.error_msg = Some(format!("読み込み失敗: {e}"));
+            }
+            Ok(data) => match DatPalette::from_dat_bytes(&data) {
+                None => {
+                    self.error_msg = Some(
+                        format!("DAT ファイルが短すぎます（{}バイト、16バイト必要）", data.len())
+                    );
+                }
+                Some(palette) => {
+                    self.dat_palette = palette;
+                    self.texture_dirty = true;
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    self.status_msg = Some(format!("DAT 読み込み: {name}"));
+                }
+            },
+        }
+    }
+
+    /// 現在の dat_palette を .dat ファイルとして保存する
+    fn save_dat_file(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("DAT パレット", &["dat"])
+            .set_file_name("palette.dat")
+            .save_file()
+        else {
+            return;
+        };
+        let bytes = self.dat_palette.to_dat_bytes();
+        match std::fs::write(&path, &bytes) {
+            Err(e) => {
+                self.error_msg = Some(format!("保存失敗: {e}"));
+            }
+            Ok(()) => {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                self.status_msg = Some(format!("DAT 保存: {name}"));
+            }
+        }
+    }
+
     // ── 未保存変更の確認ダイアログ ────────────────────────────────
 
     fn show_close_confirm_dialog(&mut self, ctx: &egui::Context) {
@@ -770,7 +889,7 @@ impl RChrApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     for color_idx in 0..4 {
-                        let color = self.dat_palette.color32(set_idx, color_idx);
+                        let color = self.dat_palette.color32(set_idx, color_idx, &self.master_palette);
                         let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
                         ui.painter().rect_filled(rect, 0.0, color);
                         // 編集中セルの枠を強調

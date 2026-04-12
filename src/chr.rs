@@ -1,5 +1,5 @@
 use egui::ColorImage;
-use crate::palette::DatPalette;
+use crate::palette::{DatPalette, MasterPalette};
 
 /// 2BPP NES 形式で 16バイトを 8×8 ピクセル（インデックス 0〜3）にデコード
 ///
@@ -32,6 +32,7 @@ pub fn render_bank_image(
     bank_offset: usize,
     palette: &DatPalette,
     palette_set: usize,
+    master: &MasterPalette,
 ) -> ColorImage {
     const TILES_PER_ROW: usize = 16;
     const IMG_SIZE: usize = 128; // 16 * 8
@@ -54,7 +55,7 @@ pub fn render_bank_image(
                 let img_x = tile_col * 8 + px;
                 let img_y = tile_row * 8 + py;
                 let color_idx = tile[py][px] as usize;
-                let [r, g, b] = palette.color_rgb(palette_set, color_idx);
+                let [r, g, b] = palette.color_rgb(palette_set, color_idx, master);
                 let i = (img_y * IMG_SIZE + img_x) * 4;
                 rgba[i]     = r;
                 rgba[i + 1] = g;
