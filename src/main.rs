@@ -29,9 +29,12 @@ fn main() -> eframe::Result {
         "R-CHR",
         options,
         Box::new(|cc| {
-            // macOS: NSApp が初期化された後（ここ）でネイティブメニューを構築する
+            // macOS: NSApp が初期化された後（ここ）でネイティブメニューを構築し外観を設定する
             #[cfg(target_os = "macos")]
-            native_menu::init();
+            {
+                native_menu::init();
+                native_menu::set_app_appearance(true); // デフォルトはダークモード
+            }
 
             app::setup_fonts(&cc.egui_ctx);
             Ok(Box::new(app::RChrApp::default()))

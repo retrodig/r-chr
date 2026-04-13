@@ -6,6 +6,8 @@ use muda::{
     accelerator::{Accelerator, Code, Modifiers},
     CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
+use objc2_app_kit::{NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication};
+use objc2_foundation::MainThreadMarker;
 use std::cell::RefCell;
 
 // ── アクション ────────────────────────────────────────────────────
@@ -44,6 +46,19 @@ thread_local! {
 }
 
 // ── 初期化 ────────────────────────────────────────────────────────
+
+/// ウィンドウ枠（タイトルバー）を含む macOS アプリ全体の外観を設定する
+pub fn set_app_appearance(dark: bool) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = NSApplication::sharedApplication(mtm);
+    let name = if dark {
+        unsafe { NSAppearanceNameDarkAqua }
+    } else {
+        unsafe { NSAppearanceNameAqua }
+    };
+    let appearance = NSAppearance::appearanceNamed(name);
+    unsafe { app.setAppearance(appearance.as_deref()); }
+}
 
 /// `eframe::run_native()` の前に一度だけ呼ぶ
 pub fn init() {

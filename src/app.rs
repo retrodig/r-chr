@@ -208,7 +208,10 @@ impl eframe::App for RChrApp {
                     MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
                     MenuAction::FileSaveAs      => { if let Err(e) = self.save_file_as() { self.error_msg = Some(e); } }
                     MenuAction::EditUndo        => self.do_undo(),
-                    MenuAction::ViewDarkMode(v) => self.dark_mode = v,
+                    MenuAction::ViewDarkMode(v) => {
+                        self.dark_mode = v;
+                        native_menu::set_app_appearance(v);
+                    }
                     MenuAction::PaletteOpenPal  => self.load_pal_file(),
                     MenuAction::PaletteOpenDat  => self.load_dat_file(),
                     MenuAction::PaletteSaveDat  => self.save_dat_file(),

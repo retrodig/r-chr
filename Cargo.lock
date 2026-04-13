@@ -10,6 +10,8 @@ dependencies = [
  "egui",
  "image",
  "muda",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
  "png 0.17.16",
  "rfd",
 ]
