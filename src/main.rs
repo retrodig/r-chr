@@ -8,11 +8,20 @@ mod native_menu;
 
 use eframe::egui;
 
+fn load_icon() -> egui::IconData {
+    let image = image::load_from_memory(include_bytes!("../assets/icon.png"))
+        .expect("icon.png の読み込みに失敗")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    egui::IconData { rgba: image.into_raw(), width, height }
+}
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("R-CHR")
-            .with_inner_size([800.0, 600.0]),
+            .with_inner_size([800.0, 600.0])
+            .with_icon(load_icon()),
         ..Default::default()
     };
 
