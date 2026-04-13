@@ -438,15 +438,20 @@ impl eframe::App for RChrApp {
             self.show_png_import_dialog(ctx);
         }
 
-        // ── ドラッグ＆ドロップ（PNG）
-        let dropped_png = ctx.input(|i| {
+        // ── ドラッグ＆ドロップ
+        let dropped = ctx.input(|i| {
             i.raw.dropped_files.iter().find_map(|f| {
                 let path = f.path.as_ref()?;
-                path.extension()?.to_str()?.eq_ignore_ascii_case("png").then(|| path.clone())
+                let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+                Some((path.clone(), ext))
             })
         });
-        if let Some(path) = dropped_png {
-            self.open_png_import_from_path(&path);
+        if let Some((path, ext)) = dropped {
+            match ext.as_str() {
+                "nes" | "bin" => self.open_file_from_path(&path),
+                "png"         => self.open_png_import_from_path(&path),
+                _             => {}
+            }
         }
 
         self.handle_keyboard(ctx);
@@ -464,14 +469,17 @@ impl RChrApp {
         else {
             return;
         };
+        self.open_file_from_path(&path);
+    }
 
+    fn open_file_from_path(&mut self, path: &std::path::Path) {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let ext = path.extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
             .unwrap_or_default();
 
-        let data = match std::fs::read(&path) {
+        let data = match std::fs::read(path) {
             Err(e) => {
                 self.error_msg = Some(format!("読み込み失敗: {e}"));
                 return;
@@ -480,7 +488,6 @@ impl RChrApp {
         };
 
         let rom_data = if ext == "bin" {
-            // 生 CHR バイナリ：ヘッダなしでそのまま使用
             if data.is_empty() {
                 self.error_msg = Some("BIN ファイルが空です".into());
                 return;
@@ -488,7 +495,6 @@ impl RChrApp {
             self.raw_file_data = None;
             RomData::Bin(data)
         } else {
-            // NES (iNES) フォーマット
             match parse_nes(&data) {
                 Err(e) => {
                     self.error_msg = Some(e.to_string());
@@ -507,7 +513,7 @@ impl RChrApp {
         self.pending_scroll_addr = Some(0);
         self.selected_tile = None;
         self.undo_stack.clear();
-        self.file_path = Some(path);
+        self.file_path = Some(path.to_path_buf());
         self.is_modified = false;
         self.rom = Some(rom_data);
         self.texture_dirty = true;
