@@ -10,3 +10,6 @@ egui = "0.31"
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 png = "0.17"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = "0.15"

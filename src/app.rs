@@ -197,6 +197,38 @@ impl eframe::App for RChrApp {
             egui::Visuals::light()
         });
 
+        // ── macOS ネイティブメニュー: イベント処理 ─────────────────
+        #[cfg(target_os = "macos")]
+        {
+            use crate::native_menu::{self, MenuAction};
+            while let Some(action) = native_menu::try_recv_action() {
+                match action {
+                    MenuAction::FileOpen        => self.open_file(),
+                    MenuAction::FileImportPng   => self.open_png_import(),
+                    MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
+                    MenuAction::FileSaveAs      => { if let Err(e) = self.save_file_as() { self.error_msg = Some(e); } }
+                    MenuAction::EditUndo        => self.do_undo(),
+                    MenuAction::ViewDarkMode(v) => self.dark_mode = v,
+                    MenuAction::PaletteOpenPal  => self.load_pal_file(),
+                    MenuAction::PaletteOpenDat  => self.load_dat_file(),
+                    MenuAction::PaletteSaveDat  => self.save_dat_file(),
+                    MenuAction::PaletteReset    => {
+                        self.master_palette = MasterPalette::from_pal_bytes(NES_PAL)
+                            .unwrap_or_default();
+                        self.texture_dirty = true;
+                        self.status_msg = Some("NES 標準パレットにリセットしました".into());
+                    }
+                }
+            }
+
+            // macOS ネイティブメニュー: enabled / checked 状態を毎フレーム同期
+            native_menu::sync_state(
+                self.file_path.is_some() && self.is_modified,
+                !self.undo_stack.is_empty(),
+                self.dark_mode,
+            );
+        }
+
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
                 if !rom.chr_data().is_empty() {
@@ -244,7 +276,8 @@ impl eframe::App for RChrApp {
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
-        // ── メニューバー
+        // ── メニューバー (macOS はネイティブメニューを使うため非表示)
+        #[cfg(not(target_os = "macos"))]
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("ファイル", |ui| {
@@ -1426,6 +1459,8 @@ impl RChrApp {
         ctx.input(|i| {
             let cmd = i.modifiers.ctrl || i.modifiers.mac_cmd;
 
+            // macOS では NSMenu が Cmd+Z / Cmd+S をインターセプトするため egui には届かない。
+            // NSMenu が機能しない場合のフォールバックとして egui 側にも残す（二重実行にはならない）。
             if cmd && i.key_pressed(egui::Key::Z) {
                 do_undo = true;
             } else if i.key_pressed(egui::Key::Z) {
