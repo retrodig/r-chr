@@ -14,7 +14,7 @@ const DEFAULT_BIN: &[u8] = include_bytes!("../assets/rchr.bin");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
-    let font_path = "/Library/Fonts/Microsoft/MS Gothic.ttf";
+    let font_path = "/Library/Fonts/Microsoft/Meiryo.ttf";
     if let Ok(font_data) = std::fs::read(font_path) {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
