@@ -58,10 +58,12 @@ impl FocusSize {
 // ── PNG インポートダイアログ状態 ───────────────────────────────────
 
 struct PngImportDialog {
-    /// 読み込んだ PNG の生バイト（再マッピング用）
+    /// 読み込んだ画像の生バイト（再マッピング用）
     png_bytes: Vec<u8>,
     /// ファイル名（表示用）
     file_name: String,
+    /// PNG なら true、BMP なら false（false の場合は RgbApprox のみ使用可）
+    is_png: bool,
     /// 現在のマッピング戦略
     strategy: MappingStrategy,
     /// 現在の変換結果
@@ -73,11 +75,12 @@ struct PngImportDialog {
 }
 
 impl PngImportDialog {
-    fn new(png_bytes: Vec<u8>, file_name: String, result: PngImportResult) -> Self {
+    fn new(png_bytes: Vec<u8>, file_name: String, is_png: bool, result: PngImportResult) -> Self {
         let strategy = result.strategy;
         Self {
             png_bytes,
             file_name,
+            is_png,
             strategy,
             result,
             preview_texture: None,
@@ -327,7 +330,7 @@ impl eframe::App for RChrApp {
                         self.open_file();
                         ui.close_menu();
                     }
-                    if ui.button("PNG をインポート…").clicked() {
+                    if ui.button("PNG / BMP をインポート…").clicked() {
                         self.open_png_import();
                         ui.close_menu();
                     }
@@ -491,7 +494,7 @@ impl eframe::App for RChrApp {
         if let Some((path, ext)) = dropped {
             match ext.as_str() {
                 "nes" | "bin" | "zip" => self.open_file_from_path(&path),
-                "png"         => self.open_png_import_from_path(&path),
+                "png" | "bmp"         => self.open_png_import_from_path(&path),
                 _             => {}
             }
         }
@@ -1116,10 +1119,10 @@ impl RChrApp {
 
     // ── PNG インポート ────────────────────────────────────────────
 
-    /// メニューから PNG ファイルを選択して開く
+    /// メニューから PNG / BMP ファイルを選択して開く
     fn open_png_import(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("PNG 画像", &["png"])
+            .add_filter("PNG / BMP 画像", &["png", "bmp"])
             .add_filter("すべてのファイル", &["*"])
             .pick_file()
         else {
@@ -1128,38 +1131,49 @@ impl RChrApp {
         self.open_png_import_from_path(&path);
     }
 
-    /// パスを直接指定して PNG インポートダイアログを開く（D&D 用）
+    /// パスを直接指定して画像インポートダイアログを開く（D&D 用）
     fn open_png_import_from_path(&mut self, path: &std::path::Path) {
         if self.rom.is_none() {
             self.error_msg = Some("先に NES / BIN ファイルを開いてください".into());
             return;
         }
-        let png_bytes = match std::fs::read(path) {
+        let img_bytes = match std::fs::read(path) {
             Err(e) => {
-                self.error_msg = Some(format!("PNG 読み込み失敗: {e}"));
+                self.error_msg = Some(format!("画像読み込み失敗: {e}"));
                 return;
             }
             Ok(b) => b,
         };
         let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        self.open_png_import_with_bytes(png_bytes, file_name);
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        let is_png = ext != "bmp";
+        self.open_image_import_with_bytes(img_bytes, file_name, is_png);
     }
 
-    fn open_png_import_with_bytes(&mut self, png_bytes: Vec<u8>, file_name: String) {
-        let result = match crate::io::png::import_png(
-            &png_bytes,
-            &self.dat_palette,
-            self.selected_palette_set,
-            &self.master_palette,
-            None, // 自動選択
-        ) {
-            Err(e) => {
-                self.error_msg = Some(format!("PNG 変換失敗: {e}"));
-                return;
-            }
-            Ok(r) => r,
+    fn open_image_import_with_bytes(&mut self, img_bytes: Vec<u8>, file_name: String, is_png: bool) {
+        let result = if is_png {
+            crate::io::png::import_png(
+                &img_bytes,
+                &self.dat_palette,
+                self.selected_palette_set,
+                &self.master_palette,
+                None,
+            )
+        } else {
+            crate::io::png::import_bmp(
+                &img_bytes,
+                &self.dat_palette,
+                self.selected_palette_set,
+                &self.master_palette,
+            )
         };
-        self.png_import_dialog = Some(PngImportDialog::new(png_bytes, file_name, result));
+        match result {
+            Err(e) => self.error_msg = Some(format!("変換失敗: {e}")),
+            Ok(r) => self.png_import_dialog = Some(PngImportDialog::new(img_bytes, file_name, is_png, r)),
+        }
     }
 
     /// PNG インポートダイアログを表示する
@@ -1201,7 +1215,7 @@ impl RChrApp {
         let mut do_close  = false;
         let mut new_strategy: Option<MappingStrategy> = None;
 
-        egui::Window::new("PNG インポート")
+        egui::Window::new("画像インポート")
             .resizable(true)
             .min_width(360.0)
             .show(ctx, |ui| {
@@ -1216,15 +1230,20 @@ impl RChrApp {
                 ));
                 ui.add_space(6.0);
 
-                // マッピング戦略選択
+                // マッピング戦略選択（BMP は RgbApprox のみ）
                 ui.label("マッピング戦略:");
                 ui.horizontal(|ui| {
                     for s in [MappingStrategy::PaletteMatch, MappingStrategy::IndexDirect, MappingStrategy::RgbApprox] {
-                        if ui.radio(dialog.strategy == s, s.label()).clicked() && dialog.strategy != s {
+                        let enabled = dialog.is_png || s == MappingStrategy::RgbApprox;
+                        let resp = ui.add_enabled(enabled, egui::RadioButton::new(dialog.strategy == s, s.label()));
+                        if resp.clicked() && dialog.strategy != s {
                             new_strategy = Some(s);
                         }
                     }
                 });
+                if !dialog.is_png {
+                    ui.colored_label(egui::Color32::GRAY, "BMP はインデックスカラー情報がないため RGB 近似のみ使用できます");
+                }
                 ui.add_space(6.0);
 
                 // 警告表示
@@ -1268,14 +1287,16 @@ impl RChrApp {
 
         // 戦略変更時は再マッピング
         if let Some(s) = new_strategy {
-            let png_bytes = self.png_import_dialog.as_ref().unwrap().png_bytes.clone();
-            match crate::io::png::import_png(
-                &png_bytes,
-                &self.dat_palette,
-                self.selected_palette_set,
-                &self.master_palette,
-                Some(s),
-            ) {
+            let (img_bytes, is_png) = {
+                let d = self.png_import_dialog.as_ref().unwrap();
+                (d.png_bytes.clone(), d.is_png)
+            };
+            let result = if is_png {
+                crate::io::png::import_png(&img_bytes, &self.dat_palette, self.selected_palette_set, &self.master_palette, Some(s))
+            } else {
+                crate::io::png::import_bmp(&img_bytes, &self.dat_palette, self.selected_palette_set, &self.master_palette)
+            };
+            match result {
                 Ok(result) => {
                     let dialog = self.png_import_dialog.as_mut().unwrap();
                     dialog.strategy = s;
@@ -1283,7 +1304,7 @@ impl RChrApp {
                     dialog.preview_dirty = true;
                 }
                 Err(e) => {
-                    self.error_msg = Some(format!("PNG 変換失敗: {e}"));
+                    self.error_msg = Some(format!("変換失敗: {e}"));
                 }
             }
         }

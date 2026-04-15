@@ -347,6 +347,53 @@ pub fn import_png(
     Ok(PngImportResult { width: w, height: h, pixels, strategy, warnings })
 }
 
+// ── BMP インポート ────────────────────────────────────────────────
+
+/// BMP データを CHR カラーインデックスに変換する（RgbApprox のみ対応）
+///
+/// BMP はインデックスカラー情報が取得できないため、RGB 近似マッピングのみ使用する。
+pub fn import_bmp(
+    bmp_data: &[u8],
+    dat: &DatPalette,
+    palette_set: usize,
+    master: &MasterPalette,
+) -> Result<PngImportResult, String> {
+    let img = image::load_from_memory(bmp_data)
+        .map_err(|e| format!("BMP デコード失敗: {e}"))?
+        .into_rgba8();
+    let w = img.width() as usize;
+    let h = img.height() as usize;
+    let mut pixels = vec![vec![0u8; w]; h];
+    let mut approx_count = 0usize;
+    let mut transparent_count = 0usize;
+
+    for y in 0..h {
+        for x in 0..w {
+            let px = img.get_pixel(x as u32, y as u32);
+            if px[3] < 128 {
+                pixels[y][x] = 0;
+                transparent_count += 1;
+                continue;
+            }
+            let rgb = [px[0], px[1], px[2]];
+            let chr_idx = nearest_dat_index(rgb, dat, palette_set, master);
+            if dat.color_rgb(palette_set, chr_idx as usize, master) != rgb {
+                approx_count += 1;
+            }
+            pixels[y][x] = chr_idx;
+        }
+    }
+
+    let mut warnings = Vec::new();
+    if transparent_count > 0 {
+        warnings.push(format!("透明ピクセル {} px → インデックス 0 に変換", transparent_count));
+    }
+    if approx_count > 0 {
+        warnings.push(format!("{} ピクセルが DAT パレット 4 色に完全一致せず近似されました", approx_count));
+    }
+    Ok(PngImportResult { width: w, height: h, pixels, strategy: MappingStrategy::RgbApprox, warnings })
+}
+
 // ── CHR への書き込み ──────────────────────────────────────────────
 
 /// PngImportResult のピクセルを CHR データに書き込む

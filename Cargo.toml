@@ -9,7 +9,7 @@ eframe = "0.31"
 egui = "0.31"
 rfd = "0.15"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 png = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]

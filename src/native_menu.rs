@@ -67,7 +67,7 @@ pub fn init() {
 
     let h = MenuHandles {
         file_open:        MenuItem::new("開く…",          true,  Some(Accelerator::new(Some(cmd),       Code::KeyO))),
-        file_import_png:  MenuItem::new("PNG をインポート…", true, None),
+        file_import_png:  MenuItem::new("PNG / BMP をインポート…", true, None),
         file_save:        MenuItem::new("保存",            false, Some(Accelerator::new(Some(cmd),       Code::KeyS))),
         file_save_as:     MenuItem::new("別名で保存…",     true,  Some(Accelerator::new(Some(cmd_shift), Code::KeyS))),
         edit_undo:        MenuItem::new("元に戻す",         false, Some(Accelerator::new(Some(cmd),       Code::KeyZ))),
