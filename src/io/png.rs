@@ -1,6 +1,6 @@
 //! PNG ファイルを CHR カラーインデックス（0〜3）に変換するモジュール
 
-use crate::palette::{DatPalette, MasterPalette};
+use crate::model::palette::{DatPalette, MasterPalette};
 
 // ── マッピング戦略 ────────────────────────────────────────────────
 
@@ -359,7 +359,7 @@ pub fn write_to_chr(
     top_left_tile: usize,
     tiles_per_row: usize,
 ) {
-    use crate::chr::encode_dot;
+    use crate::io::chr::encode_dot;
 
     let top_row = top_left_tile / tiles_per_row;
     let top_col = top_left_tile % tiles_per_row;

@@ -1,5 +1,5 @@
 use egui::ColorImage;
-use crate::palette::{DatPalette, MasterPalette};
+use crate::model::palette::{DatPalette, MasterPalette};
 
 /// 2BPP NES 形式で 16バイトを 8×8 ピクセル（インデックス 0〜3）にデコード
 ///

@@ -1,16 +1,16 @@
 use eframe::egui;
-use crate::chr::{decode_block, encode_dot, render_full_image};
-use crate::nes::{RomData, parse_nes};
-use crate::palette::{DatPalette, MasterPalette, NES_PALETTE};
-use crate::png_import::{MappingStrategy, PngImportResult};
+use crate::io::chr::{decode_block, encode_dot, render_full_image};
+use crate::io::nes::{RomData, parse_nes};
+use crate::model::palette::{DatPalette, MasterPalette, NES_PALETTE};
+use crate::io::png::{MappingStrategy, PngImportResult};
 
 /// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
-const DEFAULT_PAL: &[u8] = include_bytes!("../assets/rchr.pal");
-const DEFAULT_DAT: &[u8] = include_bytes!("../assets/rchr.dat");
+const DEFAULT_PAL: &[u8] = include_bytes!("../../assets/rchr.pal");
+const DEFAULT_DAT: &[u8] = include_bytes!("../../assets/rchr.dat");
 /// NES 標準 64色パレット（リセット用）
-const NES_PAL: &[u8] = include_bytes!("../assets/nes.pal");
+const NES_PAL: &[u8] = include_bytes!("../../assets/nes.pal");
 /// 起動時に表示するデフォルトドット絵（R-CHR ロゴ入り CHR バイナリ）
-const DEFAULT_BIN: &[u8] = include_bytes!("../assets/rchr.bin");
+const DEFAULT_BIN: &[u8] = include_bytes!("../../assets/rchr.bin");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
@@ -1066,7 +1066,7 @@ impl RChrApp {
     }
 
     fn open_png_import_with_bytes(&mut self, png_bytes: Vec<u8>, file_name: String) {
-        let result = match crate::png_import::import_png(
+        let result = match crate::io::png::import_png(
             &png_bytes,
             &self.dat_palette,
             self.selected_palette_set,
@@ -1189,7 +1189,7 @@ impl RChrApp {
         // 戦略変更時は再マッピング
         if let Some(s) = new_strategy {
             let png_bytes = self.png_import_dialog.as_ref().unwrap().png_bytes.clone();
-            match crate::png_import::import_png(
+            match crate::io::png::import_png(
                 &png_bytes,
                 &self.dat_palette,
                 self.selected_palette_set,
@@ -1251,7 +1251,7 @@ impl RChrApp {
 
         // CHR へ書き込み
         let result = &dialog.result;
-        crate::png_import::write_to_chr(rom.chr_data_mut(), result, top_left_tile, 16);
+        crate::io::png::write_to_chr(rom.chr_data_mut(), result, top_left_tile, 16);
 
         self.is_modified = true;
         self.texture_dirty = true;

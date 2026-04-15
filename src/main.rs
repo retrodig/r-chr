@@ -1,8 +1,6 @@
-mod app;
-mod chr;
-mod nes;
-mod palette;
-mod png_import;
+mod io;
+mod model;
+mod editor;
 #[cfg(target_os = "macos")]
 mod native_menu;
 
@@ -36,8 +34,8 @@ fn main() -> eframe::Result {
                 native_menu::set_app_appearance(true); // デフォルトはダークモード
             }
 
-            app::setup_fonts(&cc.egui_ctx);
-            Ok(Box::new(app::RChrApp::default()))
+            editor::app::setup_fonts(&cc.egui_ctx);
+            Ok(Box::new(editor::app::RChrApp::default()))
         }),
     )
 }
