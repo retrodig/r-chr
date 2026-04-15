@@ -8,6 +8,7 @@ edition = "2024"
 eframe = "0.31"
 egui = "0.31"
 rfd = "0.15"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 png = "0.17"
 

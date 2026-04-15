@@ -490,7 +490,7 @@ impl eframe::App for RChrApp {
         });
         if let Some((path, ext)) = dropped {
             match ext.as_str() {
-                "nes" | "bin" => self.open_file_from_path(&path),
+                "nes" | "bin" | "zip" => self.open_file_from_path(&path),
                 "png"         => self.open_png_import_from_path(&path),
                 _             => {}
             }
@@ -500,12 +500,35 @@ impl eframe::App for RChrApp {
     }
 }
 
+// ── ZIP ユーティリティ ─────────────────────────────────────────────
+
+/// ZIP バイト列から最初の .nes ファイルを取り出す。
+/// 戻り値: (ファイル名, NES バイト列)
+fn extract_nes_from_zip(zip_data: &[u8]) -> Result<(String, Vec<u8>), String> {
+    use std::io::Read;
+    let cursor = std::io::Cursor::new(zip_data);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("ZIP 読み込み失敗: {e}"))?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| format!("ZIP エントリ読み込み失敗: {e}"))?;
+        if entry.name().to_ascii_lowercase().ends_with(".nes") {
+            let name = entry.name().to_string();
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)
+                .map_err(|e| format!("ZIP 展開失敗: {e}"))?;
+            return Ok((name, data));
+        }
+    }
+    Err("ZIP 内に .nes ファイルが見つかりませんでした".into())
+}
+
 // ── ファイル操作 ───────────────────────────────────────────────────
 
 impl RChrApp {
     fn open_file(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("NES / BIN", &["nes", "bin"])
+            .add_filter("NES / BIN / ZIP", &["nes", "bin", "zip"])
             .add_filter("すべてのファイル", &["*"])
             .pick_file()
         else {
@@ -529,33 +552,51 @@ impl RChrApp {
             Ok(d) => d,
         };
 
-        let rom_data = if ext == "bin" {
-            if data.is_empty() {
+        // ZIP の場合: 内部の最初の .nes を取り出して処理
+        let (nes_data, display_name, save_path) = if ext == "zip" {
+            match extract_nes_from_zip(&data) {
+                Err(e) => {
+                    self.error_msg = Some(e);
+                    return;
+                }
+                Ok((inner_name, inner_data)) => {
+                    // ZIP から展開した場合は保存先が確定しないので file_path は None
+                    (inner_data, inner_name, None)
+                }
+            }
+        } else {
+            (data, file_name, Some(path.to_path_buf()))
+        };
+
+        let rom_data = if save_path.as_ref().map_or(false, |p| {
+            p.extension().and_then(|e| e.to_str()).map_or(false, |e| e.eq_ignore_ascii_case("bin"))
+        }) || (ext == "bin") {
+            if nes_data.is_empty() {
                 self.error_msg = Some("BIN ファイルが空です".into());
                 return;
             }
             self.raw_file_data = None;
-            RomData::Bin(data)
+            RomData::Bin(nes_data)
         } else {
-            match parse_nes(&data) {
+            match parse_nes(&nes_data) {
                 Err(e) => {
                     self.error_msg = Some(e.to_string());
                     return;
                 }
                 Ok(rom) => {
-                    self.raw_file_data = Some(data);
+                    self.raw_file_data = Some(nes_data);
                     RomData::Nes(rom)
                 }
             }
         };
 
         self.error_msg = None;
-        self.file_name = Some(file_name);
+        self.file_name = Some(display_name);
         self.scroll_addr = 0;
         self.pending_scroll_addr = Some(0);
         self.selected_tile = None;
         self.undo_stack.clear();
-        self.file_path = Some(path.to_path_buf());
+        self.file_path = save_path;
         self.is_modified = false;
         self.rom = Some(rom_data);
         self.texture_dirty = true;
