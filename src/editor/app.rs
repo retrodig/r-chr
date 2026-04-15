@@ -139,10 +139,7 @@ pub struct RChrApp {
     raw_file_data: Option<Vec<u8>>,
     /// 未保存の変更があるか
     is_modified: bool,
-    /// 未保存変更ありで閉じようとしたときの確認ダイアログ表示フラグ
-    show_close_dialog: bool,
-
-    /// アドレスジャンプ入力フィールドの内容（16進数文字列）
+/// アドレスジャンプ入力フィールドの内容（16進数文字列）
     address_input: String,
 
     /// パレットピッカーで編集中のセル (set_idx, color_idx)
@@ -178,7 +175,6 @@ impl Default for RChrApp {
             file_path: None,
             raw_file_data: None,
             is_modified: false,
-            show_close_dialog: false,
             address_input: "000000".into(),
             editing_palette_cell: None,
             png_import_dialog: None,
@@ -254,15 +250,58 @@ impl eframe::App for RChrApp {
         // ── ウィンドウ閉じるリクエストの処理
         if ctx.input(|i| i.viewport().close_requested()) {
             if self.is_modified {
-                // 閉じるをキャンセルしてダイアログを出す
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.show_close_dialog = true;
-            }
-        }
+                let file_name = self.file_name.as_deref().unwrap_or("(無題)").to_owned();
 
-        // ── 未保存変更の確認ダイアログ
-        if self.show_close_dialog {
-            self.show_close_confirm_dialog(ctx);
+                #[cfg(target_os = "macos")]
+                let choice = {
+                    use crate::native_menu::{unsaved_changes_dialog, UnsavedChoice};
+                    match unsaved_changes_dialog(&file_name) {
+                        UnsavedChoice::Save    => 0,
+                        UnsavedChoice::Discard => 1,
+                        UnsavedChoice::Cancel  => 2,
+                    }
+                };
+                #[cfg(not(target_os = "macos"))]
+                let choice = {
+                    use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
+                    let r = MessageDialog::new()
+                        .set_title("未保存の変更があります")
+                        .set_description(format!(
+                            "「{file_name}」への変更が保存されていません。\n終了する前に保存しますか？"
+                        ))
+                        .set_buttons(MessageButtons::YesNoCancel)
+                        .set_level(MessageLevel::Warning)
+                        .show();
+                    match r {
+                        MessageDialogResult::Yes => 0,
+                        MessageDialogResult::No  => 1,
+                        _                        => 2,
+                    }
+                };
+
+                match choice {
+                    0 => { // 保存して閉じる
+                        let r = if self.file_path.is_some() {
+                            self.save_file()
+                        } else {
+                            self.save_file_as()
+                        };
+                        match r {
+                            Err(e) => self.error_msg = Some(e),
+                            Ok(()) if !self.is_modified => {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                            Ok(()) => {} // save_file_as でキャンセルされた
+                        }
+                    }
+                    1 => { // 保存せず閉じる
+                        self.is_modified = false;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    _ => {} // キャンセル
+                }
+            }
         }
 
         // ── タイトルバー更新（未保存変更を * で表示）
@@ -1257,63 +1296,6 @@ impl RChrApp {
         self.texture_dirty = true;
         let (tw, th) = (result.tile_width(), result.tile_height());
         self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
-    }
-
-    // ── 未保存変更の確認ダイアログ ────────────────────────────────
-
-    fn show_close_confirm_dialog(&mut self, ctx: &egui::Context) {
-        let modal = egui::Modal::new("close_confirm".into());
-        modal.show(ctx, |ui| {
-            ui.set_width(320.0);
-            ui.heading("未保存の変更があります");
-            ui.add_space(8.0);
-            ui.label(format!(
-                "「{}」への変更が保存されていません。",
-                self.file_name.as_deref().unwrap_or("(無題)")
-            ));
-            ui.label("終了する前に保存しますか？");
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            ui.horizontal(|ui| {
-                // 保存して閉じる
-                if ui.button("💾 保存して閉じる").clicked() {
-                    let result = if self.file_path.is_some() {
-                        self.save_file()
-                    } else {
-                        self.save_file_as()
-                    };
-                    match result {
-                        Err(e) => {
-                            self.error_msg = Some(e);
-                            self.show_close_dialog = false;
-                        }
-                        Ok(()) if !self.is_modified => {
-                            // 保存成功 → 閉じる
-                            self.show_close_dialog = false;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        Ok(()) => {
-                            // save_file_as でキャンセルされた (is_modified のまま) → 何もしない
-                        }
-                    }
-                }
-
-                // 保存せず閉じる
-                if ui.button("🗑 保存せず閉じる").clicked() {
-                    self.show_close_dialog = false;
-                    // Close 後に close_requested が再発火したとき CancelClose しないよう先にクリア
-                    self.is_modified = false;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-
-                // キャンセル
-                if ui.button("キャンセル").clicked() {
-                    self.show_close_dialog = false;
-                }
-            });
-        });
     }
 
     // ── パレットパネル ────────────────────────────────────────────

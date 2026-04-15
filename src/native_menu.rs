@@ -6,8 +6,8 @@ use muda::{
     accelerator::{Accelerator, Code, Modifiers},
     CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
-use objc2_app_kit::{NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication};
-use objc2_foundation::MainThreadMarker;
+use objc2_app_kit::{NSAlert, NSAlertStyle, NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication};
+use objc2_foundation::{MainThreadMarker, NSString};
 use std::cell::RefCell;
 
 // ── アクション ────────────────────────────────────────────────────
@@ -143,6 +143,42 @@ pub fn try_recv_action() -> Option<MenuAction> {
         else if id == h.palette_reset.id()    { Some(MenuAction::PaletteReset) }
         else { None }
     })
+}
+
+// ── 未保存変更ダイアログ ──────────────────────────────────────────
+
+/// 未保存変更ダイアログの選択結果
+pub enum UnsavedChoice {
+    Save,
+    Discard,
+    Cancel,
+}
+
+/// NSAlert で「未保存の変更があります」ダイアログを表示する。
+///
+/// ボタン: 「保存して閉じる」「保存せず閉じる」「キャンセル」
+pub fn unsaved_changes_dialog(file_name: &str) -> UnsavedChoice {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return UnsavedChoice::Cancel;
+    };
+    let alert = unsafe { NSAlert::new(mtm) };
+    unsafe {
+        alert.setMessageText(&NSString::from_str("未保存の変更があります"));
+        alert.setInformativeText(&NSString::from_str(&format!(
+            "「{file_name}」への変更が保存されていません。\n終了する前に保存しますか？"
+        )));
+        alert.setAlertStyle(NSAlertStyle::Warning);
+        alert.addButtonWithTitle(&NSString::from_str("保存して閉じる"));
+        alert.addButtonWithTitle(&NSString::from_str("保存せず閉じる"));
+        alert.addButtonWithTitle(&NSString::from_str("キャンセル"));
+        let response = alert.runModal();
+        // NSAlertFirstButtonReturn=1000, Second=1001, Third=1002
+        match response {
+            1000 => UnsavedChoice::Save,
+            1001 => UnsavedChoice::Discard,
+            _    => UnsavedChoice::Cancel,
+        }
+    }
 }
 
 /// enabled / checked 状態をアプリ側の状態に合わせて更新する。毎フレーム呼ぶ。
