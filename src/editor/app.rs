@@ -14,17 +14,31 @@ const DEFAULT_BIN: &[u8] = include_bytes!("../../assets/rchr.bin");
 
 /// 起動時に日本語フォントをセットアップする
 pub fn setup_fonts(ctx: &egui::Context) {
-    let font_path = "/Library/Fonts/Microsoft/Meiryo.ttf";
-    if let Ok(font_data) = std::fs::read(font_path) {
-        let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            "jp_font".to_owned(),
-            egui::FontData::from_owned(font_data).into(),
-        );
-        fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().push("jp_font".to_owned());
-        fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap().push("jp_font".to_owned());
-        ctx.set_fonts(fonts);
-    }
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Noto Sans JP Regular — 本文フォント
+    fonts.font_data.insert(
+        "noto_regular".to_owned(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/Noto_Sans_JP/static/NotoSansJP-Regular.ttf"
+        )).into(),
+    );
+    fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "noto_regular".to_owned());
+    fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap().push("noto_regular".to_owned());
+
+    // Noto Sans JP Bold — bold_font named family
+    fonts.font_data.insert(
+        "noto_bold".to_owned(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/Noto_Sans_JP/static/NotoSansJP-Bold.ttf"
+        )).into(),
+    );
+    fonts.families.insert(
+        egui::FontFamily::Name("bold_font".into()),
+        vec!["noto_bold".to_owned()],
+    );
+
+    ctx.set_fonts(fonts);
 }
 
 // ── フォーカスサイズ ────────────────────────────────────────────────
@@ -419,7 +433,7 @@ impl eframe::App for RChrApp {
         egui::SidePanel::right("info_panel")
             .resizable(false)
             .exact_width(270.0)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 0)))
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 8)).fill(egui::Color32::from_rgb(0x28, 0x28, 0x28)))
             .show(ctx, |ui| {
                 self.show_info_panel(ui);
             });
@@ -1328,36 +1342,41 @@ impl RChrApp {
     // ── 右情報パネル（270px固定） ─────────────────────────────────
 
     fn show_info_panel(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
-
         // アドレス・タイル情報
         if let Some(rom) = &self.rom {
             if !rom.chr_data().is_empty() {
                 let total_tiles = rom.chr_data().len() / 16;
                 ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
+                ui.separator();
             }
         }
+
+        ui.add_space(6.0);
         if let Some(idx) = self.selected_tile {
-            ui.label(format!("タイル  {}  (0x{:06X})", idx, idx * 16));
+            ui.label(egui::RichText::new("タイル").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+            ui.add_space(2.0);
+            ui.label(format!("{}  (0x{:06X})", idx, idx * 16));
         }
         ui.add_space(6.0);
         ui.separator();
 
         // 描画色セレクタ
         ui.add_space(4.0);
-        ui.label("描画色");
+        ui.label(egui::RichText::new("描画色").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+        ui.add_space(10.0);
+
         let mut color_action: Option<EditorAction> = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             for c in 0..4u8 {
                 let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
                 let is_active = self.drawing_color_idx == c;
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::click());
-                ui.painter().rect_filled(rect, 3.0, fill);
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
+                ui.painter().rect_filled(rect, 4.0, fill);
                 ui.painter().rect_stroke(
-                    rect, 3.0,
+                    rect, 4.0,
                     egui::Stroke::new(if is_active { 2.5 } else { 1.0 },
-                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) }),
+                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_rgb(0x50, 0x50, 0x50) }),
                     egui::StrokeKind::Outside,
                 );
                 if resp.clicked() {
@@ -1381,7 +1400,8 @@ impl RChrApp {
 
         // NES パレット（常に表示）
         ui.add_space(4.0);
-        ui.label("NES パレット");
+        ui.label(egui::RichText::new("NES パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+
         if let Some((set_idx, color_idx)) = self.editing_palette_cell {
             ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
         } else {
@@ -1402,13 +1422,13 @@ impl RChrApp {
                         egui::vec2(cell_size, cell_size),
                         egui::Sense::click(),
                     );
-                    ui.painter().rect_filled(rect, 2.0, color);
+                    ui.painter().rect_filled(rect, 4.0, color);
                     // 編集中セルの現在値をハイライト
                     if let Some((set_idx, color_idx)) = self.editing_palette_cell {
                         let current_idx = self.dat_palette.sets[set_idx][color_idx];
                         if current_idx == nes_idx {
                             ui.painter().rect_stroke(
-                                rect, 2.0,
+                                rect, 4.0,
                                 egui::Stroke::new(2.0, egui::Color32::WHITE),
                                 egui::StrokeKind::Outside,
                             );
@@ -1430,8 +1450,9 @@ impl RChrApp {
     // ── パレットパネル ────────────────────────────────────────────
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("パレット");
-        ui.separator();
+        ui.label(egui::RichText::new("パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+        ui.add_space(10.0);
+
         let swatch_size = egui::vec2(24.0, 24.0);
         let mut set_changed = false;
         let mut open_picker: Option<(usize, usize)> = None;
@@ -1452,11 +1473,16 @@ impl RChrApp {
                     for color_idx in 0..4 {
                         let color = self.dat_palette.color32(set_idx, color_idx, &self.master_palette);
                         let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
-                        ui.painter().rect_filled(rect, 0.0, color);
+                        ui.painter().rect_filled(rect, 4.0, color);
+                        ui.painter().rect_stroke(
+                            rect, 4.0,
+                            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x50, 0x50, 0x50)),
+                            egui::StrokeKind::Outside,
+                        );
                         // 編集中セルの枠を強調
                         if self.editing_palette_cell == Some((set_idx, color_idx)) {
                             ui.painter().rect_stroke(
-                                rect, 0.0,
+                                rect, 4.0,
                                 egui::Stroke::new(2.0, egui::Color32::YELLOW),
                                 egui::StrokeKind::Outside,
                             );
