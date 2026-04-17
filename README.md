@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/github/license/retrodig/r-chr)
 
 <p align="center">
-  <img width="450" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/R-CHR.png">
+  <img width="100%" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/R-CHR.png">
 </p>
 
 NES (ファミコン) 用 CHR タイルエディタ。Rust + egui 製。
