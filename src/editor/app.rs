@@ -190,11 +190,13 @@ impl Default for RChrApp {
 
 impl eframe::App for RChrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_visuals(if self.dark_mode {
+        let mut visuals = if self.dark_mode {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
-        });
+        };
+        visuals.override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
+        ctx.set_visuals(visuals);
 
         // ── macOS ネイティブメニュー: イベント処理 ─────────────────
         #[cfg(target_os = "macos")]
@@ -761,7 +763,7 @@ impl RChrApp {
     // &self で描画意図を返す（データ変更は apply_action で行う）
 
     fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
-        ui.strong("ドットエディタ");
+        ui.label("ドットエディタ");
         ui.separator();
 
         // ── タイルが未選択
@@ -1342,7 +1344,7 @@ impl RChrApp {
 
         // 描画色セレクタ
         ui.add_space(4.0);
-        ui.strong("描画色");
+        ui.label("描画色");
         let mut color_action: Option<EditorAction> = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -1378,7 +1380,7 @@ impl RChrApp {
 
         // NES パレット（常に表示）
         ui.add_space(4.0);
-        ui.strong("NES パレット");
+        ui.label("NES パレット");
         if let Some((set_idx, color_idx)) = self.editing_palette_cell {
             ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
         } else {
@@ -1427,7 +1429,7 @@ impl RChrApp {
     // ── パレットパネル ────────────────────────────────────────────
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
-        ui.strong("パレット");
+        ui.label("パレット");
         ui.separator();
         let swatch_size = egui::vec2(24.0, 24.0);
         let mut set_changed = false;
