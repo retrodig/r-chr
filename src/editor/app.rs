@@ -404,30 +404,6 @@ impl eframe::App for RChrApp {
         });
 
         // ── ステータスバー
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(name) = &self.file_name {
-                    ui.label(format!("ファイル: {name}"));
-                    ui.separator();
-                }
-                if let Some(rom) = &self.rom {
-                    if !rom.chr_data().is_empty() {
-                        let total_tiles = rom.chr_data().len() / 16;
-                        ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
-                        if let Some(idx) = self.selected_tile {
-                            ui.separator();
-                            let addr = idx * 16;
-                            ui.label(format!("タイル: {} (0x{:06X})", idx, addr));
-                        }
-                    }
-                }
-                if let Some(msg) = &self.status_msg {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(100, 220, 100)));
-                    });
-                }
-            });
-        });
 
         // ── 右パネル（情報・描画色・パレット - 270px固定）
         egui::SidePanel::right("info_panel")
