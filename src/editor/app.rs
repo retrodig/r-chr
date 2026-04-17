@@ -405,10 +405,10 @@ impl eframe::App for RChrApp {
 
         // ── ステータスバー
 
-        // ── 右パネル（情報・描画色・パレット - 270px固定）
+        // ── 右パネル（情報・描画色・パレット - 250px固定）
         egui::SidePanel::right("info_panel")
             .resizable(false)
-            .exact_width(270.0)
+            .exact_width(250.0)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 8)).fill(egui::Color32::from_rgb(0x28, 0x28, 0x28)))
             .show(ctx, |ui| {
                 self.show_info_panel(ui);
@@ -418,7 +418,7 @@ impl eframe::App for RChrApp {
         let mut editor_action: Option<EditorAction> = None;
         egui::SidePanel::right("dot_editor_panel")
             .resizable(true)
-            .default_width(280.0)
+            .default_width(220.0)
             .min_width(180.0)
             .show(ctx, |ui| {
                 editor_action = self.show_dot_editor(ui);
@@ -1315,7 +1315,7 @@ impl RChrApp {
         self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
     }
 
-    // ── 右情報パネル（270px固定） ─────────────────────────────────
+    // ── 右情報パネル（250px固定） ─────────────────────────────────
 
     fn show_info_panel(&mut self, ui: &mut egui::Ui) {
         // アドレス・タイル情報
@@ -1383,7 +1383,7 @@ impl RChrApp {
         } else {
             ui.colored_label(egui::Color32::from_gray(140), "パレットの色をクリックして変更");
         }
-        ui.add_space(4.0);
+        ui.add_space(10.0);
 
         let cell_size = 26.0;
         let mut selected_nes_idx: Option<u8> = None;
@@ -1427,7 +1427,7 @@ impl RChrApp {
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-        ui.add_space(10.0);
+        ui.add_space(6.0);
 
         let swatch_size = egui::vec2(24.0, 24.0);
         let mut set_changed = false;
@@ -1436,12 +1436,13 @@ impl RChrApp {
         for set_idx in 0..4 {
             let is_selected = self.selected_palette_set == set_idx;
             let frame = egui::Frame::new()
+                .corner_radius(4.0)
                 .stroke(if is_selected {
                     egui::Stroke::new(2.0, egui::Color32::WHITE)
                 } else {
-                    egui::Stroke::new(1.0, egui::Color32::from_gray(80))
+                    egui::Stroke::new(2.0, egui::Color32::TRANSPARENT)
                 })
-                .inner_margin(2.0);
+                .inner_margin(6.0);
 
             frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1471,7 +1472,8 @@ impl RChrApp {
                         }
                     }
                     // ラベル部分クリックでセット選択
-                    let label_resp = ui.label(format!("#{set_idx}"));
+                    ui.add_space(6.0);
+                    let label_resp = ui.label(egui::RichText::new(format!("#{set_idx}")).font(egui::FontId::new(14.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
                     if label_resp.interact(egui::Sense::click()).clicked() {
                         self.selected_palette_set = set_idx;
                         set_changed = true;
