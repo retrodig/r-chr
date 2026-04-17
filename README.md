@@ -1,5 +1,14 @@
 # R-CHR
 
+![Rust](https://img.shields.io/badge/made%20with-Rust-red)
+![Forks](https://img.shields.io/github/forks/retrodig/r-chr)
+![Stars](https://img.shields.io/github/stars/retrodig/r-chr)
+![License](https://img.shields.io/github/license/retrodig/r-chr)
+
+<p align="center">
+  <img width="450" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/R-CHR.png">
+</p>
+
 NES (ファミコン) 用 CHR タイルエディタ。Rust + egui 製。
 
 YY-CHR の基本機能に加え、PNG インポートや連続スクロール表示など使い勝手を向上させた機能を搭載。
