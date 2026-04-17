@@ -310,12 +310,12 @@ impl eframe::App for RChrApp {
         // ── タイトルバー更新（未保存変更を * で表示）
         let title = if self.is_modified {
             format!(
-                "R-CHR  *{}",
+                "*{}",
                 self.file_name.as_deref().unwrap_or("")
             )
         } else {
             format!(
-                "R-CHR  {}",
+                "{}",
                 self.file_name.as_deref().unwrap_or("")
             )
         };
@@ -413,28 +413,22 @@ impl eframe::App for RChrApp {
             });
         });
 
-        // ── 右パネル（ドットエディタ + パレット）
-        // show_dot_editor は &self でアクションを返す → 後で apply する
-        let mut editor_action: Option<EditorAction> = None;
+        // ── 右パネル（情報・描画色・パレット - 270px固定）
+        egui::SidePanel::right("info_panel")
+            .resizable(false)
+            .exact_width(270.0)
+            .show(ctx, |ui| {
+                self.show_info_panel(ui);
+            });
 
-        egui::SidePanel::right("right_panel")
+        // ── 中央パネル（ドットエディタ）
+        let mut editor_action: Option<EditorAction> = None;
+        egui::SidePanel::right("dot_editor_panel")
             .resizable(true)
             .default_width(280.0)
-            .min_width(200.0)
+            .min_width(180.0)
             .show(ctx, |ui| {
-                let panel_h = ui.available_height();
-                egui::TopBottomPanel::bottom("palette_sub")
-                    .resizable(false)
-                    .exact_height(panel_h * 0.35)
-                    .frame(egui::Frame::new())
-                    .show_inside(ui, |ui| {
-                        self.show_palette_panel(ui);
-                    });
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::new())
-                    .show_inside(ui, |ui| {
-                        editor_action = self.show_dot_editor(ui);
-                    });
+                editor_action = self.show_dot_editor(ui);
             });
 
         // ── バンクビュー（メイン）
@@ -473,10 +467,6 @@ impl eframe::App for RChrApp {
             self.apply_action(action);
         }
 
-        // ── NES 64色パレットピッカー
-        if self.editing_palette_cell.is_some() {
-            self.show_nes_palette_picker(ctx);
-        }
 
         // ── PNG インポートダイアログ
         if self.png_import_dialog.is_some() {
@@ -773,34 +763,6 @@ impl RChrApp {
     fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
         ui.strong("ドットエディタ");
         ui.separator();
-
-        // ── 描画色セレクタ
-        let mut color_action: Option<EditorAction> = None;
-        ui.horizontal(|ui| {
-            ui.label("描画色:");
-            ui.spacing_mut().item_spacing.x = 3.0;
-            for c in 0..4u8 {
-                let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
-                let is_active = self.drawing_color_idx == c;
-                let (rect, resp) =
-                    ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
-                ui.painter().rect_filled(rect, 2.0, fill);
-                ui.painter().rect_stroke(
-                    rect, 2.0,
-                    egui::Stroke::new(if is_active { 2.5 } else { 1.0 },
-                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) }),
-                    egui::StrokeKind::Outside,
-                );
-                if resp.clicked() {
-                    color_action = Some(EditorAction::SelectDrawingColor { color_idx: c });
-                }
-            }
-        });
-        if color_action.is_some() {
-            return color_action;
-        }
-
-        ui.add_space(4.0);
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
@@ -1360,6 +1322,108 @@ impl RChrApp {
         self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
     }
 
+    // ── 右情報パネル（270px固定） ─────────────────────────────────
+
+    fn show_info_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+
+        // アドレス・タイル情報
+        if let Some(rom) = &self.rom {
+            if !rom.chr_data().is_empty() {
+                let total_tiles = rom.chr_data().len() / 16;
+                ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
+            }
+        }
+        if let Some(idx) = self.selected_tile {
+            ui.label(format!("タイル  {}  (0x{:06X})", idx, idx * 16));
+        }
+        ui.add_space(6.0);
+        ui.separator();
+
+        // 描画色セレクタ
+        ui.add_space(4.0);
+        ui.strong("描画色");
+        let mut color_action: Option<EditorAction> = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for c in 0..4u8 {
+                let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
+                let is_active = self.drawing_color_idx == c;
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::click());
+                ui.painter().rect_filled(rect, 3.0, fill);
+                ui.painter().rect_stroke(
+                    rect, 3.0,
+                    egui::Stroke::new(if is_active { 2.5 } else { 1.0 },
+                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_gray(80) }),
+                    egui::StrokeKind::Outside,
+                );
+                if resp.clicked() {
+                    color_action = Some(EditorAction::SelectDrawingColor { color_idx: c });
+                }
+            }
+        });
+        if let Some(action) = color_action {
+            self.apply_action(action);
+        }
+
+        ui.add_space(6.0);
+        ui.separator();
+
+        // パレットパネル
+        ui.add_space(4.0);
+        self.show_palette_panel(ui);
+
+        ui.add_space(4.0);
+        ui.separator();
+
+        // NES パレット（常に表示）
+        ui.add_space(4.0);
+        ui.strong("NES パレット");
+        if let Some((set_idx, color_idx)) = self.editing_palette_cell {
+            ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
+        } else {
+            ui.colored_label(egui::Color32::from_gray(140), "パレットの色をクリックして変更");
+        }
+        ui.add_space(4.0);
+
+        let cell_size = 26.0;
+        let mut selected_nes_idx: Option<u8> = None;
+        for row in 0..8usize {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                for col in 0..8usize {
+                    let nes_idx = (row * 8 + col) as u8;
+                    let [r, g, b] = NES_PALETTE[nes_idx as usize];
+                    let color = egui::Color32::from_rgb(r, g, b);
+                    let (rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(cell_size, cell_size),
+                        egui::Sense::click(),
+                    );
+                    ui.painter().rect_filled(rect, 2.0, color);
+                    // 編集中セルの現在値をハイライト
+                    if let Some((set_idx, color_idx)) = self.editing_palette_cell {
+                        let current_idx = self.dat_palette.sets[set_idx][color_idx];
+                        if current_idx == nes_idx {
+                            ui.painter().rect_stroke(
+                                rect, 2.0,
+                                egui::Stroke::new(2.0, egui::Color32::WHITE),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
+                    }
+                    let clicked = resp.clicked();
+                    resp.on_hover_text(format!("0x{nes_idx:02X}"));
+                    if clicked { selected_nes_idx = Some(nes_idx); }
+                }
+            });
+        }
+        if let (Some(idx), Some((set_idx, color_idx))) = (selected_nes_idx, self.editing_palette_cell) {
+            self.dat_palette.sets[set_idx][color_idx] = idx;
+            self.texture_dirty = true;
+            self.editing_palette_cell = None;
+        }
+    }
+
     // ── パレットパネル ────────────────────────────────────────────
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
@@ -1420,79 +1484,6 @@ impl RChrApp {
         }
         if set_changed {
             self.texture_dirty = true;
-        }
-    }
-
-    // ── NES 64色パレットピッカー ──────────────────────────────────
-
-    fn show_nes_palette_picker(&mut self, ctx: &egui::Context) {
-        let Some((set_idx, color_idx)) = self.editing_palette_cell else { return };
-
-        // Esc で閉じる
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.editing_palette_cell = None;
-            return;
-        }
-
-        let mut open = true;
-        egui::Window::new("NES パレット")
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .show(ctx, |ui| {
-                ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
-                ui.separator();
-
-                let cell_size = 20.0;
-                let mut selected_nes_idx: Option<u8> = None;
-
-                // 8列 × 8行 で 64色を表示
-                for row in 0..8usize {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(1.0, 1.0);
-                        for col in 0..8usize {
-                            let nes_idx = (row * 8 + col) as u8;
-                            let [r, g, b] = NES_PALETTE[nes_idx as usize];
-                            let color = egui::Color32::from_rgb(r, g, b);
-                            let (rect, resp) = ui.allocate_exact_size(
-                                egui::vec2(cell_size, cell_size),
-                                egui::Sense::click(),
-                            );
-                            ui.painter().rect_filled(rect, 1.0, color);
-
-                            // 現在選択中インデックスをハイライト
-                            let current_idx = self.dat_palette.sets[set_idx][color_idx];
-                            if current_idx == nes_idx {
-                                ui.painter().rect_stroke(
-                                    rect, 1.0,
-                                    egui::Stroke::new(2.0, egui::Color32::WHITE),
-                                    egui::StrokeKind::Outside,
-                                );
-                            }
-
-                            let clicked = resp.clicked();
-                            resp.on_hover_text(format!("0x{nes_idx:02X}"));
-                            if clicked {
-                                selected_nes_idx = Some(nes_idx);
-                            }
-                        }
-                    });
-                }
-
-                ui.add_space(6.0);
-                if ui.button("閉じる").clicked() {
-                    self.editing_palette_cell = None;
-                }
-
-                if let Some(idx) = selected_nes_idx {
-                    self.dat_palette.sets[set_idx][color_idx] = idx;
-                    self.texture_dirty = true;
-                    self.editing_palette_cell = None;
-                }
-            });
-
-        if !open {
-            self.editing_palette_cell = None;
         }
     }
 
