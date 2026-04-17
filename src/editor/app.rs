@@ -419,6 +419,7 @@ impl eframe::App for RChrApp {
         egui::SidePanel::right("info_panel")
             .resizable(false)
             .exact_width(270.0)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 0)))
             .show(ctx, |ui| {
                 self.show_info_panel(ui);
             });
