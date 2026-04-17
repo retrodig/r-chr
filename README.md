@@ -1,4 +1,4 @@
-# R-CHR
+# ✏️ R-CHR
 
 ![Rust](https://img.shields.io/badge/made%20with-Rust-red)
 ![Forks](https://img.shields.io/github/forks/retrodig/r-chr)
