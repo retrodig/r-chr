@@ -799,7 +799,7 @@ impl RChrApp {
             let r = header_resp.response.rect;
             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
         }
-        ui.add_space(10.0);
+        ui.add_space(16.0);
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
@@ -814,17 +814,18 @@ impl RChrApp {
         // フォーカスブロック全体をデコード（N×N タイル → block_px × block_px ドット）
         let block = decode_block(rom.chr_data(), top_left_tile, 16, n);
 
-        // ── ドットキャンバス
-        let available = ui.available_size();
-        let dot_size = (available.x.min(available.y) / block_px as f32)
-            .floor()
-            .max(1.0);
-        let canvas = dot_size * block_px as f32;
-
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(canvas, canvas),
-            egui::Sense::click_and_drag(),
-        );
+        // ── ドットキャンバス（左右16pxのpadding）
+        let pad = 16.0;
+        ui.style_mut().spacing.indent = pad;
+        ui.visuals_mut().indent_has_left_vline = false;
+        let canvas_resp = ui.indent("dot_canvas", |ui| {
+            let available = ui.available_size() - egui::vec2(pad, 0.0); // 右pad分だけ引く
+            let dot_size = (available.x.min(available.y) / block_px as f32).floor().max(1.0);
+            let canvas = dot_size * block_px as f32;
+            let alloc = ui.allocate_exact_size(egui::vec2(canvas, canvas), egui::Sense::click_and_drag());
+            (alloc, dot_size)
+        });
+        let ((rect, response), dot_size) = canvas_resp.inner;
         let painter = ui.painter();
 
         for py in 0..block_px {
