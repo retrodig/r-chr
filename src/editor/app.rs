@@ -5,6 +5,7 @@ use crate::model::palette::{DatPalette, MasterPalette};
 use crate::io::png::{MappingStrategy, PngImportResult};
 use super::bank_view::FocusSize;
 use super::dot_editor::EditorAction;
+use super::theme;
 
 /// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
 const DEFAULT_PAL: &[u8] = include_bytes!("../../assets/rchr.pal");
@@ -174,8 +175,8 @@ impl eframe::App for RChrApp {
         } else {
             egui::Visuals::light()
         };
-        visuals.override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C));
+        visuals.override_text_color = Some(theme::COL_TEXT);
+        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, theme::COL_BORDER_DARK);
         ctx.set_visuals(visuals);
 
         // ── macOS ネイティブメニュー: イベント処理 ─────────────────
@@ -372,14 +373,14 @@ impl eframe::App for RChrApp {
         // メニューバー直下の1pxボーダー
         egui::TopBottomPanel::top("top_border")
             .exact_height(1.0)
-            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)))
+            .frame(egui::Frame::new().fill(theme::COL_BORDER_DARK))
             .show(ctx, |_ui| {});
 
         // ── 右パネル（情報・描画色・パレット - 245px固定）
         let info_resp = egui::SidePanel::right("info_panel")
             .resizable(false)
             .exact_width(245.0)
-            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 8)).fill(egui::Color32::from_rgb(0x28, 0x28, 0x28)))
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 8)).fill(theme::COL_PANEL_BG))
             .show(ctx, |ui| {
                 self.show_info_panel(ui);
             });
@@ -394,16 +395,6 @@ impl eframe::App for RChrApp {
             .show(ctx, |ui| {
                 editor_action = self.show_dot_editor(ui);
             });
-
-        // パネルの外枠ボーダー（上・左のみ）をforegroundレイヤーで描画
-//         {
-//             let border = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C));
-//             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("panel_borders")));
-//             for r in [info_resp.response.rect, dot_resp.response.rect] {
-//                 painter.hline(r.x_range(), r.top(), border);
-//                 painter.vline(r.left(), r.y_range(), border);
-//             }
-//         }
 
         // ── バンクビュー（メイン）
         egui::CentralPanel::default()

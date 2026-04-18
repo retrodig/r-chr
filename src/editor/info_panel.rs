@@ -3,13 +3,14 @@ use eframe::egui;
 use crate::model::palette::NES_PALETTE;
 use super::app::RChrApp;
 use super::dot_editor::EditorAction;
+use super::theme;
 
 impl RChrApp {
-    // ── 右情報パネル（250px固定） ─────────────────────────────────
+    // ── 右情報パネル ─────────────────────────────────────────────
 
     pub(super) fn show_info_panel(&mut self, ui: &mut egui::Ui) {
         ui.visuals_mut().widgets.noninteractive.bg_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
+            egui::Stroke::new(1.0, theme::COL_SEPARATOR);
 
         // アドレス・タイル情報
         if let Some(rom) = &self.rom {
@@ -22,7 +23,11 @@ impl RChrApp {
 
         ui.add_space(6.0);
         if let Some(idx) = self.selected_tile {
-            ui.label(egui::RichText::new("タイル").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+            ui.label(
+                egui::RichText::new("タイル")
+                    .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                    .color(theme::COL_TEXT),
+            );
             ui.add_space(2.0);
             ui.label(format!("{}  (0x{:06X})", idx, idx * 16));
         }
@@ -31,7 +36,11 @@ impl RChrApp {
 
         // 描画色セレクタ
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("描画色").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+        ui.label(
+            egui::RichText::new("描画色")
+                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .color(theme::COL_TEXT),
+        );
         ui.add_space(10.0);
 
         let mut color_action: Option<EditorAction> = None;
@@ -40,12 +49,17 @@ impl RChrApp {
             for c in 0..4u8 {
                 let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
                 let is_active = self.drawing_color_idx == c;
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
-                ui.painter().rect_filled(rect, 4.0, fill);
+                let (rect, resp) = ui.allocate_exact_size(
+                    egui::vec2(theme::SWATCH_PX, theme::SWATCH_PX),
+                    egui::Sense::click(),
+                );
+                ui.painter().rect_filled(rect, theme::CR_SM, fill);
                 ui.painter().rect_stroke(
-                    rect, 4.0,
-                    egui::Stroke::new(if is_active { 2.5 } else { 1.0 },
-                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_rgb(0x50, 0x50, 0x50) }),
+                    rect, theme::CR_SM,
+                    egui::Stroke::new(
+                        if is_active { 2.5 } else { 1.0 },
+                        if is_active { egui::Color32::WHITE } else { theme::COL_SWATCH_BORDER },
+                    ),
                     egui::StrokeKind::Outside,
                 );
                 if resp.clicked() {
@@ -69,7 +83,11 @@ impl RChrApp {
 
         // NES パレット（常に表示）
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("NES パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+        ui.label(
+            egui::RichText::new("NES パレット")
+                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .color(theme::COL_TEXT),
+        );
 
         if let Some((set_idx, color_idx)) = self.editing_palette_cell {
             ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
@@ -91,13 +109,13 @@ impl RChrApp {
                         egui::vec2(cell_size, cell_size),
                         egui::Sense::click(),
                     );
-                    ui.painter().rect_filled(rect, 4.0, color);
+                    ui.painter().rect_filled(rect, theme::CR_SM, color);
                     // 編集中セルの現在値をハイライト
                     if let Some((set_idx, color_idx)) = self.editing_palette_cell {
                         let current_idx = self.dat_palette.sets[set_idx][color_idx];
                         if current_idx == nes_idx {
                             ui.painter().rect_stroke(
-                                rect, 4.0,
+                                rect, theme::CR_SM,
                                 egui::Stroke::new(2.0, egui::Color32::WHITE),
                                 egui::StrokeKind::Outside,
                             );
@@ -119,17 +137,21 @@ impl RChrApp {
     // ── パレットパネル ────────────────────────────────────────────
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+        ui.label(
+            egui::RichText::new("パレット")
+                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .color(theme::COL_TEXT),
+        );
         ui.add_space(6.0);
 
-        let swatch_size = egui::vec2(24.0, 24.0);
+        let swatch_size = egui::vec2(theme::SWATCH_PX, theme::SWATCH_PX);
         let mut set_changed = false;
         let mut open_picker: Option<(usize, usize)> = None;
 
         for set_idx in 0..4 {
             let is_selected = self.selected_palette_set == set_idx;
             let frame = egui::Frame::new()
-                .corner_radius(4.0)
+                .corner_radius(theme::CR_SM)
                 .stroke(if is_selected {
                     egui::Stroke::new(2.0, egui::Color32::WHITE)
                 } else {
@@ -143,16 +165,16 @@ impl RChrApp {
                     for color_idx in 0..4 {
                         let color = self.dat_palette.color32(set_idx, color_idx, &self.master_palette);
                         let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
-                        ui.painter().rect_filled(rect, 4.0, color);
+                        ui.painter().rect_filled(rect, theme::CR_SM, color);
                         ui.painter().rect_stroke(
-                            rect, 4.0,
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x50, 0x50, 0x50)),
+                            rect, theme::CR_SM,
+                            egui::Stroke::new(1.0, theme::COL_SWATCH_BORDER),
                             egui::StrokeKind::Outside,
                         );
                         // 編集中セルの枠を強調
                         if self.editing_palette_cell == Some((set_idx, color_idx)) {
                             ui.painter().rect_stroke(
-                                rect, 4.0,
+                                rect, theme::CR_SM,
                                 egui::Stroke::new(2.0, egui::Color32::YELLOW),
                                 egui::StrokeKind::Outside,
                             );
@@ -166,7 +188,11 @@ impl RChrApp {
                     }
                     // ラベル部分クリックでセット選択
                     ui.add_space(6.0);
-                    let label_resp = ui.label(egui::RichText::new(format!("#{set_idx}")).font(egui::FontId::new(14.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+                    let label_resp = ui.label(
+                        egui::RichText::new(format!("#{set_idx}"))
+                            .font(egui::FontId::new(theme::FONT_SIZE_PALETTE_IDX, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .color(theme::COL_TEXT),
+                    );
                     if label_resp.interact(egui::Sense::click()).clicked() {
                         self.selected_palette_set = set_idx;
                         set_changed = true;
@@ -177,7 +203,6 @@ impl RChrApp {
         }
 
         if let Some(cell) = open_picker {
-            // 対応するパレットセットも選択状態にする
             self.selected_palette_set = cell.0;
             self.editing_palette_cell = Some(cell);
             set_changed = true;

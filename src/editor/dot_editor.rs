@@ -2,6 +2,7 @@
 use eframe::egui;
 use crate::io::chr::{decode_block, encode_dot};
 use super::app::RChrApp;
+use super::theme;
 
 // ── アクション ──────────────────────────────────────────────────────
 
@@ -40,29 +41,23 @@ impl RChrApp {
         let mut clicked_tool: Option<usize> = None;
 
         let header_resp = egui::Frame::new()
-            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 6, bottom: 6 })
+            .fill(theme::COL_HEADER_BG)
+            .inner_margin(egui::Margin { left: theme::PANEL_PADDING as _, right: theme::PANEL_PADDING as _, top: 6, bottom: 6 })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     for (i, (name, bytes)) in ICON_NAMES.iter().zip(ICON_BYTES.iter()).enumerate() {
                         let is_active = current_tool == i;
-                        let tint = if is_active {
-                            egui::Color32::from_rgb(0x26, 0x26, 0x26)
-                        } else {
-                            egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)
-                        };
-                        let bg = if is_active {
-                            egui::Color32::from_rgb(0xB6, 0xB6, 0xB6)
-                        } else {
-                            egui::Color32::TRANSPARENT
-                        };
+                        let tint = if is_active { theme::COL_HEADER_BG } else { theme::COL_TEXT };
+                        let bg   = if is_active { theme::COL_ACTIVE_BG } else { egui::Color32::TRANSPARENT };
                         let img = egui::Image::from_bytes(
                             format!("bytes://icon_{name}.svg"),
                             bytes.to_vec(),
-                        ).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(tint);
-                        let cr = egui::CornerRadius::same(4);
+                        )
+                        .fit_to_exact_size(egui::vec2(16.0, 16.0))
+                        .tint(tint);
+                        let cr = egui::CornerRadius::same(theme::CR_SM);
                         {
                             let v = ui.visuals_mut();
                             for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
@@ -72,7 +67,7 @@ impl RChrApp {
                                 state.corner_radius = cr;
                             }
                         }
-                        if ui.add(egui::Button::image(img).min_size(egui::vec2(22.0, 22.0))).clicked() {
+                        if ui.add(egui::Button::image(img).min_size(egui::vec2(theme::ICON_BTN_PX, theme::ICON_BTN_PX))).clicked() {
                             clicked_tool = Some(i);
                         }
                     }
@@ -81,10 +76,10 @@ impl RChrApp {
         if let Some(t) = clicked_tool { self.drawing_tool = t; }
         {
             let r = header_resp.response.rect;
-            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::COL_BORDER_DARK));
         }
 
-        ui.add_space(16.0);
+        ui.add_space(theme::PANEL_PADDING);
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
@@ -100,7 +95,7 @@ impl RChrApp {
         let block = decode_block(rom.chr_data(), top_left_tile, 16, n);
 
         // ── ドットキャンバス（左右16pxのpadding）
-        let pad = 16.0;
+        let pad = theme::PANEL_PADDING;
         ui.style_mut().spacing.indent = pad;
         ui.visuals_mut().indent_has_left_vline = false;
         let canvas_resp = ui.indent("dot_canvas", |ui| {
@@ -125,7 +120,7 @@ impl RChrApp {
                     egui::vec2(dot_size, dot_size),
                 );
                 painter.rect_filled(dot_rect, 0.0, fill);
-                // ドットグリッド線（block_px が小さいときのみ描画）
+                // ドットグリッド線（dot_size が十分大きいときのみ描画）
                 if dot_size >= 4.0 {
                     painter.rect_stroke(
                         dot_rect, 0.0,
@@ -243,7 +238,7 @@ impl RChrApp {
                 let snap_row = (tile_idx / 16 / n) * n;
                 let snapped  = snap_row * 16 + snap_col;
 
-                self.selected_tile      = Some(snapped);
+                self.selected_tile       = Some(snapped);
                 self.pending_scroll_addr = Some(snap_row * 0x100);
                 self.address_input       = format!("{:06X}", snapped * 16);
                 return;

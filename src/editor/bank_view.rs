@@ -1,6 +1,7 @@
 //! バンクビュー（CHR 全体ビュー）
 use eframe::egui;
 use super::app::RChrApp;
+use super::theme;
 
 // ── フォーカスサイズ ────────────────────────────────────────────────
 
@@ -39,95 +40,100 @@ impl RChrApp {
         let scale = (available_w / 128.0).floor().max(1.0);
         let tile_px = 8.0 * scale; // 1 タイルの表示サイズ（px）
 
-
         // ── ツールバー（アドレスジャンプ + フォーカスサイズ）
         let toolbar_resp = egui::Frame::new()
-            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 5 })
+            .fill(theme::COL_HEADER_BG)
+            .inner_margin(egui::Margin { left: theme::PANEL_PADDING as _, right: theme::PANEL_PADDING as _, top: 5, bottom: 5 })
             .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_min_height(24.0);
-            ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
-        let _ = ui.horizontal(|ui| {
-            // アドレスジャンプ入力
-            ui.label(egui::RichText::new("アドレス").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-            ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(0x33, 0x33, 0x33);
-            ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
-            let addr_resp = ui.add(
-                egui::TextEdit::singleline(&mut self.address_input)
-                    .desired_width(70.0)
-                    .font(egui::FontId::new(13.0, egui::FontFamily::Proportional))
-                    .hint_text("001000"),
-            );
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(24.0);
+                ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                    egui::Stroke::new(1.0, theme::COL_SEPARATOR);
+                let _ = ui.horizontal(|ui| {
+                    // アドレスジャンプ入力
+                    ui.label(
+                        egui::RichText::new("アドレス")
+                            .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .color(theme::COL_TEXT),
+                    );
+                    ui.visuals_mut().extreme_bg_color = theme::COL_INPUT_BG;
+                    ui.visuals_mut().override_text_color = Some(theme::COL_TEXT);
+                    let addr_resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.address_input)
+                            .desired_width(70.0)
+                            .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Proportional))
+                            .hint_text("001000"),
+                    );
 
-            let enter_pressed = addr_resp.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let button_clicked = {
-                let btn_color = egui::Color32::from_rgb(0x5E, 0x5E, 0x5E);
-                let btn_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x20, 0x20, 0x20));
-                let cr = egui::CornerRadius::same(5);
-                {
-                    let v = ui.visuals_mut();
-                    v.override_text_color = Some(egui::Color32::WHITE);
-                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-                        state.bg_fill = btn_color;
-                        state.weak_bg_fill = btn_color;
-                        state.bg_stroke = btn_stroke;
-                        state.corner_radius = cr;
+                    let enter_pressed = addr_resp.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let button_clicked = {
+                        let cr = egui::CornerRadius::same(theme::CR_BTN);
+                        {
+                            let v = ui.visuals_mut();
+                            v.override_text_color = Some(egui::Color32::WHITE);
+                            for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+                                state.bg_fill = theme::COL_BTN_BG;
+                                state.weak_bg_fill = theme::COL_BTN_BG;
+                                state.bg_stroke = egui::Stroke::new(1.0, theme::COL_BTN_BORDER);
+                                state.corner_radius = cr;
+                            }
+                        }
+                        ui.add(
+                            egui::Button::new(
+                                egui::RichText::new("移動")
+                                    .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Proportional)),
+                            )
+                            .min_size(egui::vec2(46.0, 20.0)),
+                        )
+                        .clicked()
+                    };
+
+                    if enter_pressed || button_clicked {
+                        self.jump_to_address();
+                        ui.ctx().memory_mut(|m| m.surrender_focus(addr_resp.id));
+                    } else if !addr_resp.has_focus() {
+                        self.address_input = match self.selected_tile {
+                            Some(idx) => format!("{:06X}", idx * 16),
+                            None      => format!("{:06X}", self.scroll_addr),
+                        };
                     }
-                }
-                ui.add(
-                    egui::Button::new(egui::RichText::new("移動").font(egui::FontId::new(13.0, egui::FontFamily::Proportional)))
-                        .min_size(egui::vec2(46.0, 20.0))
-                ).clicked()
-            };
 
-            if enter_pressed || button_clicked {
-                self.jump_to_address();
-                ui.ctx().memory_mut(|m| m.surrender_focus(addr_resp.id));
-            } else if !addr_resp.has_focus() {
-                self.address_input = match self.selected_tile {
-                    Some(idx) => format!("{:06X}", idx * 16),
-                    None      => format!("{:06X}", self.scroll_addr),
-                };
-            }
+                    ui.separator();
 
-            ui.separator();
-
-            // フォーカスサイズ切り替えボタン
-            for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
-                let is_active = self.focus_size == fs;
-                let (fg, bg) = if is_active {
-                    (egui::Color32::from_rgb(0x26, 0x26, 0x26), egui::Color32::from_rgb(0xB6, 0xB6, 0xB6))
-                } else {
-                    (egui::Color32::from_rgb(0xB6, 0xB6, 0xB6), egui::Color32::TRANSPARENT)
-                };
-                let label = egui::RichText::new(fs.label())
-                    .font(egui::FontId::new(13.0, egui::FontFamily::Name("bold_font".into())))
-                    .color(fg);
-                let cr = egui::CornerRadius::same(4);
-                {
-                    let v = ui.visuals_mut();
-                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-                        state.bg_fill = bg;
-                        state.weak_bg_fill = bg;
-                        state.bg_stroke = egui::Stroke::NONE;
-                        state.corner_radius = cr;
+                    // フォーカスサイズ切り替えボタン
+                    for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
+                        let is_active = self.focus_size == fs;
+                        let (fg, bg) = if is_active {
+                            (theme::COL_HEADER_BG, theme::COL_ACTIVE_BG)
+                        } else {
+                            (theme::COL_ACTIVE_BG, egui::Color32::TRANSPARENT)
+                        };
+                        let label = egui::RichText::new(fs.label())
+                            .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .color(fg);
+                        let cr = egui::CornerRadius::same(theme::CR_SM);
+                        {
+                            let v = ui.visuals_mut();
+                            for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+                                state.bg_fill = bg;
+                                state.weak_bg_fill = bg;
+                                state.bg_stroke = egui::Stroke::NONE;
+                                state.corner_radius = cr;
+                            }
+                        }
+                        let btn = egui::Button::new(label)
+                            .min_size(egui::vec2(theme::ICON_BTN_PX, theme::ICON_BTN_PX))
+                            .frame(true);
+                        if ui.add(btn).clicked() {
+                            self.focus_size = fs;
+                        }
                     }
-                }
-                let btn = egui::Button::new(label)
-                    .min_size(egui::vec2(22.0, 22.0))
-                    .frame(true);
-                if ui.add(btn).clicked() {
-                    self.focus_size = fs;
-                }
-            }
-        }); // horizontal
-        }); // Frame
+                }); // horizontal
+            }); // Frame
         {
             let r = toolbar_resp.response.rect;
-            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, theme::COL_BORDER_DARK));
         }
 
         // ── スクロールビューの準備（self からコピーが必要な値を事前抽出）
@@ -154,88 +160,88 @@ impl RChrApp {
         }
 
         let frame_out = egui::Frame::new()
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 16, bottom: 0 })
+            .inner_margin(egui::Margin { left: theme::PANEL_PADDING as _, right: theme::PANEL_PADDING as _, top: theme::PANEL_PADDING as _, bottom: 0 })
             .show(ui, |ui| { scroll_area.show(ui, |ui| {
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(display_w, display_h),
-                egui::Sense::click(),
-            );
-
-            // テクスチャ描画
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            ui.painter().image(texture_id, rect, uv, egui::Color32::WHITE);
-
-            let painter = ui.painter();
-
-            // マイナーグリッド（タイル単位）
-            let minor = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25);
-            for col in 1..16 {
-                let x = rect.left() + tile_px * col as f32;
-                painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    egui::Stroke::new(0.5, minor),
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(display_w, display_h),
+                    egui::Sense::click(),
                 );
-            }
-            for row in 1..total_rows {
-                let y = rect.top() + tile_px * row as f32;
-                painter.line_segment(
-                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    egui::Stroke::new(0.5, minor),
-                );
-            }
 
-            // メジャーグリッド（フォーカスブロック単位）
-            if n > 1 {
-                let major = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 70);
-                for col in (0..=16).step_by(n) {
+                // テクスチャ描画
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                ui.painter().image(texture_id, rect, uv, egui::Color32::WHITE);
+
+                let painter = ui.painter();
+
+                // マイナーグリッド（タイル単位）
+                let minor = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25);
+                for col in 1..16 {
                     let x = rect.left() + tile_px * col as f32;
                     painter.line_segment(
                         [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                        egui::Stroke::new(1.0, major),
+                        egui::Stroke::new(0.5, minor),
                     );
                 }
-                for row in (0..=total_rows).step_by(n) {
+                for row in 1..total_rows {
                     let y = rect.top() + tile_px * row as f32;
                     painter.line_segment(
                         [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                        egui::Stroke::new(1.0, major),
+                        egui::Stroke::new(0.5, minor),
                     );
                 }
-            }
 
-            // タイルクリック検出（フォーカスグリッドに snap）
-            let new_tile = if response.clicked() {
-                response.interact_pointer_pos().and_then(|pos| {
-                    let rel_x = pos.x - rect.left();
-                    let rel_y = pos.y - rect.top();
-                    if rel_x < 0.0 || rel_y < 0.0 { return None; }
-                    let col = (rel_x / tile_px) as usize;
-                    let row = (rel_y / tile_px) as usize;
-                    if col >= 16 { return None; }
-                    let global_tile = row * 16 + col;
-                    (global_tile < total_tiles).then_some(global_tile)
-                })
-            } else {
-                None
-            };
+                // メジャーグリッド（フォーカスブロック単位）
+                if n > 1 {
+                    let major = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 70);
+                    for col in (0..=16).step_by(n) {
+                        let x = rect.left() + tile_px * col as f32;
+                        painter.line_segment(
+                            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                            egui::Stroke::new(1.0, major),
+                        );
+                    }
+                    for row in (0..=total_rows).step_by(n) {
+                        let y = rect.top() + tile_px * row as f32;
+                        painter.line_segment(
+                            [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                            egui::Stroke::new(1.0, major),
+                        );
+                    }
+                }
 
-            // 選択ブロックのハイライト
-            if let Some(tile_idx) = selected_tile_snap {
-                let t_row = tile_idx / 16;
-                let t_col = tile_idx % 16;
-                let bx = rect.left() + t_col as f32 * tile_px;
-                let by_ = rect.top()  + t_row as f32 * tile_px;
-                let bs  = tile_px * n as f32;
-                let hl  = egui::Rect::from_min_size(egui::pos2(bx, by_), egui::vec2(bs, bs));
-                painter.rect_stroke(
-                    hl, 0.0,
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
-                    egui::StrokeKind::Outside,
-                );
-            }
+                // タイルクリック検出（フォーカスグリッドに snap）
+                let new_tile = if response.clicked() {
+                    response.interact_pointer_pos().and_then(|pos| {
+                        let rel_x = pos.x - rect.left();
+                        let rel_y = pos.y - rect.top();
+                        if rel_x < 0.0 || rel_y < 0.0 { return None; }
+                        let col = (rel_x / tile_px) as usize;
+                        let row = (rel_y / tile_px) as usize;
+                        if col >= 16 { return None; }
+                        let global_tile = row * 16 + col;
+                        (global_tile < total_tiles).then_some(global_tile)
+                    })
+                } else {
+                    None
+                };
 
-            new_tile
-        }) }); // scroll_area.show / Frame
+                // 選択ブロックのハイライト
+                if let Some(tile_idx) = selected_tile_snap {
+                    let t_row = tile_idx / 16;
+                    let t_col = tile_idx % 16;
+                    let bx = rect.left() + t_col as f32 * tile_px;
+                    let by_ = rect.top()  + t_row as f32 * tile_px;
+                    let bs  = tile_px * n as f32;
+                    let hl  = egui::Rect::from_min_size(egui::pos2(bx, by_), egui::vec2(bs, bs));
+                    painter.rect_stroke(
+                        hl, 0.0,
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+
+                new_tile
+            }) }); // scroll_area.show / Frame
 
         let scroll_out = frame_out.inner;
         // スクロール結果を self に反映
