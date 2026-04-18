@@ -117,7 +117,6 @@ pub struct RChrApp {
     file_path: Option<PathBuf>,     // フルパス（上書き保存用）
     raw_file_data: Option<Vec<u8>>, // 元ファイルバイト列（CHR 書き戻し用）
     is_modified: bool,              // 未保存変更フラグ
-    show_close_dialog: bool,        // 未保存変更確認ダイアログ表示フラグ
     error_msg: Option<String>,      // エラーメッセージ
 
     // ── バンクビュー ──────────────────────────
@@ -138,6 +137,7 @@ pub struct RChrApp {
     // ── ドット編集 ────────────────────────────
     selected_tile: Option<usize>,   // 選択中タイルのグローバルインデックス
     drawing_color_idx: u8,          // 描画色インデックス（0〜3）
+    drawing_tool: usize,            // 描画ツール種別
     undo_stack: Vec<(usize, [u8; 16])>,  // (tile_offset, 変更前 16 バイト)
 
     // ── PNG インポート ────────────────────────
@@ -145,6 +145,7 @@ pub struct RChrApp {
 
     // ── UI 設定 ───────────────────────────────
     dark_mode: bool,
+    show_about: bool,               // About ダイアログ表示フラグ
     status_msg: Option<String>,     // ステータスバー一時メッセージ
     address_input: String,          // アドレスジャンプ入力文字列
 }
@@ -186,3 +187,10 @@ struct PngImportDialog {
     preview_dirty: bool,
 }
 ```
+
+---
+
+## 新規ファイルの初期状態
+
+`new_file()` は 0x4000 バイト（16KB）のゼロデータを `RomData::Bin` として生成する。
+ファイル名は `"newfile"`、`file_path` は `None`（保存先未確定）。
