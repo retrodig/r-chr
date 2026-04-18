@@ -625,17 +625,37 @@ impl RChrApp {
                 egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
         let _ = ui.horizontal(|ui| {
             // アドレスジャンプ入力
-            ui.label("アドレス:");
+            ui.label(egui::RichText::new("アドレス").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
+            ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(0x33, 0x33, 0x33);
+            ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
             let addr_resp = ui.add(
                 egui::TextEdit::singleline(&mut self.address_input)
                     .desired_width(70.0)
-                    .font(egui::TextStyle::Monospace)
+                    .font(egui::FontId::new(13.0, egui::FontFamily::Proportional))
                     .hint_text("001000"),
             );
 
             let enter_pressed = addr_resp.lost_focus()
                 && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let button_clicked = ui.button("移動").clicked();
+            let button_clicked = {
+                let btn_color = egui::Color32::from_rgb(0x5E, 0x5E, 0x5E);
+                let btn_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x20, 0x20, 0x20));
+                let cr = egui::CornerRadius::same(5);
+                {
+                    let v = ui.visuals_mut();
+                    v.override_text_color = Some(egui::Color32::WHITE);
+                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+                        state.bg_fill = btn_color;
+                        state.weak_bg_fill = btn_color;
+                        state.bg_stroke = btn_stroke;
+                        state.corner_radius = cr;
+                    }
+                }
+                ui.add(
+                    egui::Button::new(egui::RichText::new("移動").font(egui::FontId::new(13.0, egui::FontFamily::Proportional)))
+                        .min_size(egui::vec2(46.0, 20.0))
+                ).clicked()
+            };
 
             if enter_pressed || button_clicked {
                 self.jump_to_address();
@@ -650,7 +670,6 @@ impl RChrApp {
             ui.separator();
 
             // フォーカスサイズ切り替えボタン
-            ui.label("サイズ:");
             for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
                 if ui.selectable_label(self.focus_size == fs, fs.label()).clicked() {
                     self.focus_size = fs;
