@@ -210,6 +210,7 @@ impl eframe::App for RChrApp {
             egui::Visuals::light()
         };
         visuals.override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
+        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C));
         ctx.set_visuals(visuals);
 
         // ── macOS ネイティブメニュー: イベント処理 ─────────────────
@@ -339,7 +340,7 @@ impl eframe::App for RChrApp {
 
         // ── メニューバー (macOS はネイティブメニューを使うため非表示)
         #[cfg(not(target_os = "macos"))]
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        let _menu_resp = egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("ファイル", |ui| {
                     if ui.button("開く…  ⌘O").clicked() {
@@ -403,12 +404,16 @@ impl eframe::App for RChrApp {
             });
         });
 
-        // ── ステータスバー
+        // メニューバー直下の1pxボーダー
+        egui::TopBottomPanel::top("top_border")
+            .exact_height(1.0)
+            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)))
+            .show(ctx, |_ui| {});
 
-        // ── 右パネル（情報・描画色・パレット - 250px固定）
-        egui::SidePanel::right("info_panel")
+        // ── 右パネル（情報・描画色・パレット - 245px固定）
+        let info_resp = egui::SidePanel::right("info_panel")
             .resizable(false)
-            .exact_width(250.0)
+            .exact_width(245.0)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(12, 8)).fill(egui::Color32::from_rgb(0x28, 0x28, 0x28)))
             .show(ctx, |ui| {
                 self.show_info_panel(ui);
@@ -416,13 +421,23 @@ impl eframe::App for RChrApp {
 
         // ── 中央パネル（ドットエディタ）
         let mut editor_action: Option<EditorAction> = None;
-        egui::SidePanel::right("dot_editor_panel")
+        let dot_resp = egui::SidePanel::right("dot_editor_panel")
             .resizable(true)
-            .default_width(220.0)
+            .default_width(420.0)
             .min_width(180.0)
             .show(ctx, |ui| {
                 editor_action = self.show_dot_editor(ui);
             });
+
+        // パネルの外枠ボーダー（上・左のみ）をforegroundレイヤーで描画
+//         {
+//             let border = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C));
+//             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("panel_borders")));
+//             for r in [info_resp.response.rect, dot_resp.response.rect] {
+//                 painter.hline(r.x_range(), r.top(), border);
+//                 painter.vline(r.left(), r.y_range(), border);
+//             }
+//         }
 
         // ── バンクビュー（メイン）
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -597,7 +612,12 @@ impl RChrApp {
         let tile_px = 8.0 * scale; // 1 タイルの表示サイズ（px）
 
         // ── ツールバー（アドレスジャンプ + フォーカスサイズ）
-        ui.horizontal(|ui| {
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
+            .inner_margin(egui::Margin::ZERO)
+            .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+        let _ = ui.horizontal(|ui| {
             // アドレスジャンプ入力
             ui.label("アドレス:");
             let addr_resp = ui.add(
@@ -631,8 +651,13 @@ impl RChrApp {
                     // 選択タイルの起点は変えない（8×8 単位で自由に設定できる）
                 }
             }
-        });
-        ui.add_space(4.0);
+        }); // horizontal
+        }); // Frame
+        // ボーダー（下辺）
+//         {
+//             let r = ui.min_rect();
+//             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+//         }
 
         // ── スクロールビューの準備（self からコピーが必要な値を事前抽出）
         let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
@@ -754,8 +779,19 @@ impl RChrApp {
     // &self で描画意図を返す（データ変更は apply_action で行う）
 
     fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
-        ui.label("ドットエディタ");
-        ui.separator();
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
+//             .inner_margin(egui::Margin::ZERO)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label("ドットエディタ");
+            });
+        // ボーダー（下辺）
+//         {
+//             let r = ui.min_rect();
+//             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+//         }
+         ui.add_space(10.0);
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
@@ -1318,6 +1354,9 @@ impl RChrApp {
     // ── 右情報パネル（250px固定） ─────────────────────────────────
 
     fn show_info_panel(&mut self, ui: &mut egui::Ui) {
+        ui.visuals_mut().widgets.noninteractive.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
+
         // アドレス・タイル情報
         if let Some(rom) = &self.rom {
             if !rom.chr_data().is_empty() {

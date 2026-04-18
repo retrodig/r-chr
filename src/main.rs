@@ -18,7 +18,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("R-CHR")
-            .with_inner_size([1000.0, 720.0])
+            .with_inner_size([1200.0, 720.0])
             .with_icon(load_icon()),
         ..Default::default()
     };
