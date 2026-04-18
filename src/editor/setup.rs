@@ -1,5 +1,7 @@
 //! アプリ起動時の初期化処理
 
+use super::theme;
+
 pub fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
@@ -21,7 +23,7 @@ pub fn setup_fonts(ctx: &egui::Context) {
         )).into(),
     );
     fonts.families.insert(
-        egui::FontFamily::Name("bold_font".into()),
+        egui::FontFamily::Name(theme::BOLD_FONT.into()),
         vec!["noto_bold".to_owned()],
     );
 

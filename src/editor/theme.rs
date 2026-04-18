@@ -47,6 +47,28 @@ pub(super) const FONT_SIZE_PALETTE_IDX: f32 = 14.0;
 /// 小テキスト・ボタンフォントサイズ (Proportional / bold_font)
 pub(super) const FONT_SIZE_SMALL: f32 = 13.0;
 
+// ── フォント ID ヘルパー ───────────────────────────────────────────
+
+/// セクションラベル用 FontId（bold, 15px）
+pub(super) fn font_label() -> egui::FontId {
+    egui::FontId::new(FONT_SIZE_LABEL, egui::FontFamily::Name(BOLD_FONT.into()))
+}
+
+/// パレットセットインデックス用 FontId（bold, 14px）
+pub(super) fn font_palette_idx() -> egui::FontId {
+    egui::FontId::new(FONT_SIZE_PALETTE_IDX, egui::FontFamily::Name(BOLD_FONT.into()))
+}
+
+/// 小テキスト通常用 FontId（Proportional, 13px）
+pub(super) fn font_small() -> egui::FontId {
+    egui::FontId::new(FONT_SIZE_SMALL, egui::FontFamily::Proportional)
+}
+
+/// 小テキストボールド用 FontId（bold, 13px）
+pub(super) fn font_small_bold() -> egui::FontId {
+    egui::FontId::new(FONT_SIZE_SMALL, egui::FontFamily::Name(BOLD_FONT.into()))
+}
+
 // ── サイズ ─────────────────────────────────────────────────────────
 
 /// パレットスウォッチ 1 辺の長さ (px)

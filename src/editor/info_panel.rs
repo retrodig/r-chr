@@ -25,7 +25,7 @@ impl RChrApp {
         if let Some(idx) = self.selected_tile {
             ui.label(
                 egui::RichText::new("タイル")
-                    .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                    .font(theme::font_label())
                     .color(theme::COL_TEXT),
             );
             ui.add_space(2.0);
@@ -38,7 +38,7 @@ impl RChrApp {
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new("描画色")
-                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .font(theme::font_label())
                 .color(theme::COL_TEXT),
         );
         ui.add_space(10.0);
@@ -85,7 +85,7 @@ impl RChrApp {
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new("NES パレット")
-                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .font(theme::font_label())
                 .color(theme::COL_TEXT),
         );
 
@@ -139,7 +139,7 @@ impl RChrApp {
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new("パレット")
-                .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                .font(theme::font_label())
                 .color(theme::COL_TEXT),
         );
         ui.add_space(6.0);
@@ -190,7 +190,7 @@ impl RChrApp {
                     ui.add_space(6.0);
                     let label_resp = ui.label(
                         egui::RichText::new(format!("#{set_idx}"))
-                            .font(egui::FontId::new(theme::FONT_SIZE_PALETTE_IDX, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .font(theme::font_palette_idx())
                             .color(theme::COL_TEXT),
                     );
                     if label_resp.interact(egui::Sense::click()).clicked() {

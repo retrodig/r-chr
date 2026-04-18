@@ -53,7 +53,7 @@ impl RChrApp {
                     // アドレスジャンプ入力
                     ui.label(
                         egui::RichText::new("アドレス")
-                            .font(egui::FontId::new(theme::FONT_SIZE_LABEL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .font(theme::font_label())
                             .color(theme::COL_TEXT),
                     );
                     ui.visuals_mut().extreme_bg_color = theme::COL_INPUT_BG;
@@ -61,7 +61,7 @@ impl RChrApp {
                     let addr_resp = ui.add(
                         egui::TextEdit::singleline(&mut self.address_input)
                             .desired_width(70.0)
-                            .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Proportional))
+                            .font(theme::font_small())
                             .hint_text("001000"),
                     );
 
@@ -82,7 +82,7 @@ impl RChrApp {
                         ui.add(
                             egui::Button::new(
                                 egui::RichText::new("移動")
-                                    .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Proportional)),
+                                    .font(theme::font_small()),
                             )
                             .min_size(egui::vec2(46.0, 20.0)),
                         )
@@ -110,7 +110,7 @@ impl RChrApp {
                             (theme::COL_ACTIVE_BG, egui::Color32::TRANSPARENT)
                         };
                         let label = egui::RichText::new(fs.label())
-                            .font(egui::FontId::new(theme::FONT_SIZE_SMALL, egui::FontFamily::Name(theme::BOLD_FONT.into())))
+                            .font(theme::font_small_bold())
                             .color(fg);
                         let cr = egui::CornerRadius::same(theme::CR_SM);
                         {
