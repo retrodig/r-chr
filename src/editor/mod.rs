@@ -6,4 +6,5 @@ mod info_panel;
 mod keyboard;
 mod mac;
 mod png_import;
+pub mod setup;
 mod theme;

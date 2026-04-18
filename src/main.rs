@@ -35,7 +35,7 @@ fn main() -> eframe::Result {
             }
 
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            editor::app::setup_fonts(&cc.egui_ctx);
+            editor::setup::setup_fonts(&cc.egui_ctx);
             Ok(Box::new(editor::app::RChrApp::default()))
         }),
     )
