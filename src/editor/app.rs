@@ -98,6 +98,9 @@ pub struct RChrApp {
 
     /// ダークモード有効フラグ
     pub(super) dark_mode: bool,
+
+    /// About ダイアログ表示フラグ
+    pub(super) show_about: bool,
 }
 
 impl Default for RChrApp {
@@ -128,6 +131,7 @@ impl Default for RChrApp {
             editing_palette_cell: None,
             png_import_dialog: None,
             dark_mode: true,
+            show_about: false,
         }
     }
 }
@@ -151,6 +155,7 @@ impl eframe::App for RChrApp {
             use crate::native_menu::{self, MenuAction};
             while let Some(action) = native_menu::try_recv_action() {
                 match action {
+                    MenuAction::About           => self.show_about = true,
                     MenuAction::FileOpen        => self.open_file(),
                     MenuAction::FileImportPng   => self.open_png_import(),
                     MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
@@ -422,6 +427,29 @@ impl eframe::App for RChrApp {
                 "png" | "bmp"         => self.open_png_import_from_path(&path),
                 _             => {}
             }
+        }
+
+        // ── About ダイアログ
+        if self.show_about {
+            egui::Window::new("R-CHR について")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.heading("R-CHR");
+                        ui.add_space(4.0);
+                        ui.label(concat!("Version ", env!("CARGO_PKG_VERSION")));
+                        ui.add_space(8.0);
+                        ui.label("NES CHR エディタ");
+                        ui.add_space(12.0);
+                        if ui.button("  閉じる  ").clicked() {
+                            self.show_about = false;
+                        }
+                        ui.add_space(8.0);
+                    });
+                });
         }
 
         self.handle_keyboard(ctx);

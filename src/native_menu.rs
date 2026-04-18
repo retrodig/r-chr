@@ -14,6 +14,7 @@ use std::cell::RefCell;
 
 /// ネイティブメニューから発行されるアクション
 pub enum MenuAction {
+    About,
     FileOpen,
     FileImportPng,
     FileSave,
@@ -29,6 +30,7 @@ pub enum MenuAction {
 // ── メニューアイテムハンドル ──────────────────────────────────────
 
 struct MenuHandles {
+    about:            MenuItem,
     file_open:        MenuItem,
     file_import_png:  MenuItem,
     file_save:        MenuItem,
@@ -66,6 +68,7 @@ pub fn init() {
     let cmd_shift = Modifiers::META | Modifiers::SHIFT;
 
     let h = MenuHandles {
+        about:            MenuItem::new("R-CHR について…", true,  None),
         file_open:        MenuItem::new("開く…",          true,  Some(Accelerator::new(Some(cmd),       Code::KeyO))),
         file_import_png:  MenuItem::new("PNG / BMP をインポート…", true, None),
         file_save:        MenuItem::new("保存",            false, Some(Accelerator::new(Some(cmd),       Code::KeyS))),
@@ -105,7 +108,7 @@ pub fn init() {
 
     // ── macOS: 先頭はアプリ名メニュー（省略するとファイルメニューがそこに入る）
     let app_menu = Submenu::new("R-CHR", true);
-    app_menu.append(&PredefinedMenuItem::about(None, None)).unwrap();
+    app_menu.append(&h.about).unwrap();
     app_menu.append(&PredefinedMenuItem::separator()).unwrap();
     app_menu.append(&PredefinedMenuItem::quit(None)).unwrap();
 
@@ -131,7 +134,8 @@ pub fn try_recv_action() -> Option<MenuAction> {
         let borrow = slot.borrow();
         let h = borrow.as_ref()?;
         let id = &event.id;
-        if      id == h.file_open.id()        { Some(MenuAction::FileOpen) }
+        if      id == h.about.id()            { Some(MenuAction::About) }
+        else if id == h.file_open.id()        { Some(MenuAction::FileOpen) }
         else if id == h.file_import_png.id()  { Some(MenuAction::FileImportPng) }
         else if id == h.file_save.id()        { Some(MenuAction::FileSave) }
         else if id == h.file_save_as.id()     { Some(MenuAction::FileSaveAs) }
