@@ -425,6 +425,7 @@ impl eframe::App for RChrApp {
             .resizable(true)
             .default_width(420.0)
             .min_width(180.0)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::ZERO))
             .show(ctx, |ui| {
                 editor_action = self.show_dot_editor(ui);
             });
@@ -440,7 +441,9 @@ impl eframe::App for RChrApp {
 //         }
 
         // ── バンクビュー（メイン）
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(egui::Margin::ZERO))
+            .show(ctx, |ui| {
             if let Some(err) = self.error_msg.clone() {
                 ui.colored_label(egui::Color32::RED, format!("エラー: {err}"));
                 if ui.button("閉じる").clicked() {
@@ -612,11 +615,14 @@ impl RChrApp {
         let tile_px = 8.0 * scale; // 1 タイルの表示サイズ（px）
 
         // ── ツールバー（アドレスジャンプ + フォーカスサイズ）
-        egui::Frame::new()
+        let toolbar_resp = egui::Frame::new()
             .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin::ZERO)
+            .inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 5 })
             .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
+            ui.set_min_height(24.0);
+            ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
         let _ = ui.horizontal(|ui| {
             // アドレスジャンプ入力
             ui.label("アドレス:");
@@ -653,11 +659,10 @@ impl RChrApp {
             }
         }); // horizontal
         }); // Frame
-        // ボーダー（下辺）
-//         {
-//             let r = ui.min_rect();
-//             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
-//         }
+        {
+            let r = toolbar_resp.response.rect;
+            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+        }
 
         // ── スクロールビューの準備（self からコピーが必要な値を事前抽出）
         let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
@@ -779,19 +784,19 @@ impl RChrApp {
     // &self で描画意図を返す（データ変更は apply_action で行う）
 
     fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
-        egui::Frame::new()
+        let header_resp = egui::Frame::new()
             .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-//             .inner_margin(egui::Margin::ZERO)
+            .inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 5 })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
+                ui.set_min_height(24.0);
                 ui.label("ドットエディタ");
             });
-        // ボーダー（下辺）
-//         {
-//             let r = ui.min_rect();
-//             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
-//         }
-         ui.add_space(10.0);
+        {
+            let r = header_resp.response.rect;
+            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
+        }
+        ui.add_space(10.0);
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
