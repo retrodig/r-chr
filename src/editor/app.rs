@@ -147,6 +147,8 @@ pub struct RChrApp {
 
     /// 現在の描画色インデックス（0〜3）
     drawing_color_idx: u8,
+    /// 選択中の描画ツール（0=pencil, 1=pencil_pattern, ...）
+    drawing_tool: usize,
     /// アンドゥスタック: (タイルのバイトオフセット, 変更前の 16バイト)
     undo_stack: Vec<(usize, [u8; 16])>,
 
@@ -188,6 +190,7 @@ impl Default for RChrApp {
             status_msg: None,
             selected_tile: Some(0),
             drawing_color_idx: 1,
+            drawing_tool: 0,
             undo_stack: Vec::new(),
             file_path: None,
             raw_file_data: None,
@@ -826,40 +829,72 @@ impl RChrApp {
     // ── ドットエディタ ────────────────────────────────────────────
     // &self で描画意図を返す（データ変更は apply_action で行う）
 
-    fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
+    fn show_dot_editor(&mut self, ui: &mut egui::Ui) -> Option<EditorAction> {
+        const ICON_NAMES: &[&str] = &[
+            "pencil", "pencil_pattern", "slash",
+            "square", "square_fill", "square_pattern",
+            "circle", "circle_fill", "paint-bucket", "stamp",
+        ];
+        const ICON_BYTES: &[&[u8]] = &[
+            include_bytes!("../../assets/icons/pencil.svg"),
+            include_bytes!("../../assets/icons/pencil_pattern.svg"),
+            include_bytes!("../../assets/icons/slash.svg"),
+            include_bytes!("../../assets/icons/square.svg"),
+            include_bytes!("../../assets/icons/square_fill.svg"),
+            include_bytes!("../../assets/icons/square_pattern.svg"),
+            include_bytes!("../../assets/icons/circle.svg"),
+            include_bytes!("../../assets/icons/circle_fill.svg"),
+            include_bytes!("../../assets/icons/paint-bucket.svg"),
+            include_bytes!("../../assets/icons/stamp.svg"),
+        ];
+        let current_tool = self.drawing_tool;
+        let mut clicked_tool: Option<usize> = None;
+
         let header_resp = egui::Frame::new()
             .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 4, bottom: 0 })
+            .inner_margin(egui::Margin { left: 16, right: 16, top: 6, bottom: 6 })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.set_min_height(30.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
-                    const ICONS: &[(&str, &[u8])] = &[
-                        ("pencil",          include_bytes!("../../assets/icons/pencil.svg")),
-                        ("pencil_pattern",  include_bytes!("../../assets/icons/pencil_pattern.svg")),
-                        ("slash",           include_bytes!("../../assets/icons/slash.svg")),
-                        ("square",          include_bytes!("../../assets/icons/square.svg")),
-                        ("square_fill",     include_bytes!("../../assets/icons/square_fill.svg")),
-                        ("square_pattern",  include_bytes!("../../assets/icons/square_pattern.svg")),
-                        ("circle",          include_bytes!("../../assets/icons/circle.svg")),
-                        ("circle_fill",     include_bytes!("../../assets/icons/circle_fill.svg")),
-                        ("paint-bucket",    include_bytes!("../../assets/icons/paint-bucket.svg")),
-                        ("stamp",           include_bytes!("../../assets/icons/stamp.svg")),
-                    ];
-                    for (name, bytes) in ICONS {
+                    for (i, (name, bytes)) in ICON_NAMES.iter().zip(ICON_BYTES.iter()).enumerate() {
+                        let is_active = current_tool == i;
+                        let tint = if is_active {
+                            egui::Color32::from_rgb(0x26, 0x26, 0x26)
+                        } else {
+                            egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)
+                        };
+                        let bg = if is_active {
+                            egui::Color32::from_rgb(0xB6, 0xB6, 0xB6)
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        };
                         let img = egui::Image::from_bytes(
                             format!("bytes://icon_{name}.svg"),
                             bytes.to_vec(),
-                        ).fit_to_exact_size(egui::vec2(16.0, 16.0));
-                        ui.add(egui::Button::image(img).min_size(egui::vec2(24.0, 24.0)));
+                        ).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(tint);
+                        let cr = egui::CornerRadius::same(4);
+                        {
+                            let v = ui.visuals_mut();
+                            for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+                                state.bg_fill = bg;
+                                state.weak_bg_fill = bg;
+                                state.bg_stroke = egui::Stroke::NONE;
+                                state.corner_radius = cr;
+                            }
+                        }
+                        if ui.add(egui::Button::image(img).min_size(egui::vec2(22.0, 22.0))).clicked() {
+                            clicked_tool = Some(i);
+                        }
                     }
                 });
             });
+        if let Some(t) = clicked_tool { self.drawing_tool = t; }
         {
             let r = header_resp.response.rect;
             ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
         }
+
         ui.add_space(16.0);
 
         // ── タイルが未選択
