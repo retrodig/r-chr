@@ -671,9 +671,30 @@ impl RChrApp {
 
             // フォーカスサイズ切り替えボタン
             for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
-                if ui.selectable_label(self.focus_size == fs, fs.label()).clicked() {
+                let is_active = self.focus_size == fs;
+                let (fg, bg) = if is_active {
+                    (egui::Color32::from_rgb(0x26, 0x26, 0x26), egui::Color32::from_rgb(0xB6, 0xB6, 0xB6))
+                } else {
+                    (egui::Color32::from_rgb(0xB6, 0xB6, 0xB6), egui::Color32::TRANSPARENT)
+                };
+                let label = egui::RichText::new(fs.label())
+                    .font(egui::FontId::new(13.0, egui::FontFamily::Name("bold_font".into())))
+                    .color(fg);
+                let cr = egui::CornerRadius::same(4);
+                {
+                    let v = ui.visuals_mut();
+                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+                        state.bg_fill = bg;
+                        state.weak_bg_fill = bg;
+                        state.bg_stroke = egui::Stroke::NONE;
+                        state.corner_radius = cr;
+                    }
+                }
+                let btn = egui::Button::new(label)
+                    .min_size(egui::vec2(22.0, 22.0))
+                    .frame(true);
+                if ui.add(btn).clicked() {
                     self.focus_size = fs;
-                    // 選択タイルの起点は変えない（8×8 単位で自由に設定できる）
                 }
             }
         }); // horizontal
