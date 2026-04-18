@@ -687,7 +687,9 @@ impl RChrApp {
             scroll_area = scroll_area.vertical_scroll_offset(row as f32 * tile_px);
         }
 
-        let scroll_out = scroll_area.show(ui, |ui| {
+        let frame_out = egui::Frame::new()
+            .inner_margin(egui::Margin { left: 16, right: 16, top: 16, bottom: 0 })
+            .show(ui, |ui| { scroll_area.show(ui, |ui| {
             let (rect, response) = ui.allocate_exact_size(
                 egui::vec2(display_w, display_h),
                 egui::Sense::click(),
@@ -767,8 +769,9 @@ impl RChrApp {
             }
 
             new_tile
-        });
+        }) }); // scroll_area.show / Frame
 
+        let scroll_out = frame_out.inner;
         // スクロール結果を self に反映
         if let Some(tile) = scroll_out.inner {
             self.selected_tile = Some(tile);
