@@ -15,6 +15,7 @@ use std::cell::RefCell;
 /// ネイティブメニューから発行されるアクション
 pub enum MenuAction {
     About,
+    FileNew,
     FileOpen,
     FileImportPng,
     FileSave,
@@ -31,6 +32,7 @@ pub enum MenuAction {
 
 struct MenuHandles {
     about:            MenuItem,
+    file_new:         MenuItem,
     file_open:        MenuItem,
     file_import_png:  MenuItem,
     file_save:        MenuItem,
@@ -69,6 +71,7 @@ pub fn init() {
 
     let h = MenuHandles {
         about:            MenuItem::new("R-CHR について…", true,  None),
+        file_new:         MenuItem::new("新規作成",        true,  Some(Accelerator::new(Some(cmd),       Code::KeyN))),
         file_open:        MenuItem::new("開く…",          true,  Some(Accelerator::new(Some(cmd),       Code::KeyO))),
         file_import_png:  MenuItem::new("PNG / BMP をインポート…", true, None),
         file_save:        MenuItem::new("保存",            false, Some(Accelerator::new(Some(cmd),       Code::KeyS))),
@@ -83,6 +86,8 @@ pub fn init() {
 
     // ── ファイル
     let file = Submenu::new("ファイル", true);
+    file.append(&h.file_new).unwrap();
+    file.append(&PredefinedMenuItem::separator()).unwrap();
     file.append(&h.file_open).unwrap();
     file.append(&h.file_import_png).unwrap();
     file.append(&PredefinedMenuItem::separator()).unwrap();
@@ -135,6 +140,7 @@ pub fn try_recv_action() -> Option<MenuAction> {
         let h = borrow.as_ref()?;
         let id = &event.id;
         if      id == h.about.id()            { Some(MenuAction::About) }
+        else if id == h.file_new.id()         { Some(MenuAction::FileNew) }
         else if id == h.file_open.id()        { Some(MenuAction::FileOpen) }
         else if id == h.file_import_png.id()  { Some(MenuAction::FileImportPng) }
         else if id == h.file_save.id()        { Some(MenuAction::FileSave) }

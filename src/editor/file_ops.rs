@@ -28,6 +28,21 @@ fn extract_nes_from_zip(zip_data: &[u8]) -> Result<(String, Vec<u8>), String> {
 // ── ファイル操作 ───────────────────────────────────────────────────
 
 impl RChrApp {
+    pub(super) fn new_file(&mut self) {
+        let chr_data = vec![0u8; 0x4000];
+        self.error_msg = None;
+        self.file_name = Some("newfile".to_string());
+        self.file_path = None;
+        self.raw_file_data = None;
+        self.scroll_addr = 0;
+        self.pending_scroll_addr = Some(0);
+        self.selected_tile = None;
+        self.undo_stack.clear();
+        self.is_modified = false;
+        self.rom = Some(RomData::Bin(chr_data));
+        self.texture_dirty = true;
+    }
+
     pub(super) fn open_file(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("NES / BIN / ZIP", &["nes", "bin", "zip"])

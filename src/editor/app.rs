@@ -156,6 +156,7 @@ impl eframe::App for RChrApp {
             while let Some(action) = native_menu::try_recv_action() {
                 match action {
                     MenuAction::About           => self.show_about = true,
+                    MenuAction::FileNew         => self.new_file(),
                     MenuAction::FileOpen        => self.open_file(),
                     MenuAction::FileImportPng   => self.open_png_import(),
                     MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
@@ -280,6 +281,11 @@ impl eframe::App for RChrApp {
         let _menu_resp = egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("ファイル", |ui| {
+                    if ui.button("新規作成  ⌘N").clicked() {
+                        self.new_file();
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("開く…  ⌘O").clicked() {
                         self.open_file();
                         ui.close_menu();
