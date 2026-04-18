@@ -1,8 +1,10 @@
 use eframe::egui;
-use crate::io::chr::{decode_block, encode_dot, render_full_image};
+use crate::io::chr::render_full_image;
 use crate::io::nes::{RomData, parse_nes};
-use crate::model::palette::{DatPalette, MasterPalette, NES_PALETTE};
+use crate::model::palette::{DatPalette, MasterPalette};
 use crate::io::png::{MappingStrategy, PngImportResult};
+use super::bank_view::FocusSize;
+use super::dot_editor::EditorAction;
 
 /// デフォルトで読み込むパレットファイル（バイナリに埋め込み）
 const DEFAULT_PAL: &[u8] = include_bytes!("../../assets/rchr.pal");
@@ -41,34 +43,6 @@ pub fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-// ── フォーカスサイズ ────────────────────────────────────────────────
-
-/// バンクビューの選択ブロックサイズ（ピクセル単位 = タイル数 × 8）
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FocusSize {
-    S8   = 8,
-    S16  = 16,
-    S32  = 32,
-    S64  = 64,
-    S128 = 128,
-}
-
-impl FocusSize {
-    /// 1 辺のタイル数（例: S32 → 4）
-    fn tile_count(self) -> usize { self as usize / 8 }
-
-    /// UI ラベル文字列
-    fn label(self) -> &'static str {
-        match self {
-            Self::S8   => "8",
-            Self::S16  => "16",
-            Self::S32  => "32",
-            Self::S64  => "64",
-            Self::S128 => "128",
-        }
-    }
-}
-
 // ── PNG インポートダイアログ状態 ───────────────────────────────────
 
 struct PngImportDialog {
@@ -103,72 +77,60 @@ impl PngImportDialog {
     }
 }
 
-// ── アクション ──────────────────────────────────────────────────────
-
-/// ドットエディタが発行するアクション（UI 描画とデータ変更を分離するため）
-enum EditorAction {
-    /// ドットを塗る。push_undo=true のときは変更前のタイルを undo スタックへ
-    PaintDot { tile_offset: usize, px: usize, py: usize, color: u8, push_undo: bool },
-    /// スポイト：ドットの色を描画色として取得
-    Eyedrop { color_idx: u8 },
-    /// 描画色の選択
-    SelectDrawingColor { color_idx: u8 },
-}
-
 // ── アプリ状態 ─────────────────────────────────────────────────────
 
 pub struct RChrApp {
-    rom: Option<RomData>,
-    file_name: Option<String>,
-    error_msg: Option<String>,
+    pub(super) rom: Option<RomData>,
+    pub(super) file_name: Option<String>,
+    pub(super) error_msg: Option<String>,
 
     /// スクロール位置（ステータス表示用、毎フレーム更新）
-    scroll_addr: usize,
+    pub(super) scroll_addr: usize,
     /// アドレスジャンプ時の目標アドレス（次フレームで ScrollArea に適用）
-    pending_scroll_addr: Option<usize>,
+    pub(super) pending_scroll_addr: Option<usize>,
     /// バンクビューの表示先頭行（矢印キーのスクロール判定用）
-    scroll_top_row: usize,
+    pub(super) scroll_top_row: usize,
     /// バンクビューの可視行数（矢印キーのスクロール判定用）
-    visible_tile_rows: usize,
-    bank_texture: Option<egui::TextureHandle>,
-    texture_dirty: bool,
+    pub(super) visible_tile_rows: usize,
+    pub(super) bank_texture: Option<egui::TextureHandle>,
+    pub(super) texture_dirty: bool,
 
     /// バンクビューの選択ブロックサイズ
-    focus_size: FocusSize,
+    pub(super) focus_size: FocusSize,
 
-    dat_palette: DatPalette,
-    master_palette: MasterPalette,
-    selected_palette_set: usize,
+    pub(super) dat_palette: DatPalette,
+    pub(super) master_palette: MasterPalette,
+    pub(super) selected_palette_set: usize,
 
     /// ステータスバーに表示する一時メッセージ
-    status_msg: Option<String>,
+    pub(super) status_msg: Option<String>,
 
-    selected_tile: Option<usize>,
+    pub(super) selected_tile: Option<usize>,
 
     /// 現在の描画色インデックス（0〜3）
-    drawing_color_idx: u8,
+    pub(super) drawing_color_idx: u8,
     /// 選択中の描画ツール（0=pencil, 1=pencil_pattern, ...）
-    drawing_tool: usize,
+    pub(super) drawing_tool: usize,
     /// アンドゥスタック: (タイルのバイトオフセット, 変更前の 16バイト)
-    undo_stack: Vec<(usize, [u8; 16])>,
+    pub(super) undo_stack: Vec<(usize, [u8; 16])>,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
-    file_path: Option<std::path::PathBuf>,
+    pub(super) file_path: Option<std::path::PathBuf>,
     /// 元のファイルバイト列（CHR 部分を書き戻すために保持）
-    raw_file_data: Option<Vec<u8>>,
+    pub(super) raw_file_data: Option<Vec<u8>>,
     /// 未保存の変更があるか
-    is_modified: bool,
-/// アドレスジャンプ入力フィールドの内容（16進数文字列）
-    address_input: String,
+    pub(super) is_modified: bool,
+    /// アドレスジャンプ入力フィールドの内容（16進数文字列）
+    pub(super) address_input: String,
 
     /// パレットピッカーで編集中のセル (set_idx, color_idx)
-    editing_palette_cell: Option<(usize, usize)>,
+    pub(super) editing_palette_cell: Option<(usize, usize)>,
 
     /// PNG インポートダイアログの状態
     png_import_dialog: Option<PngImportDialog>,
 
     /// ダークモード有効フラグ
-    dark_mode: bool,
+    pub(super) dark_mode: bool,
 }
 
 impl Default for RChrApp {
@@ -481,6 +443,8 @@ impl eframe::App for RChrApp {
             self.apply_action(action);
         }
 
+        // suppress unused warnings for panel responses
+        let _ = (info_resp, dot_resp);
 
         // ── PNG インポートダイアログ
         if self.png_import_dialog.is_some() {
@@ -607,473 +571,6 @@ impl RChrApp {
         self.is_modified = false;
         self.rom = Some(rom_data);
         self.texture_dirty = true;
-    }
-
-    // ── バンクビュー ──────────────────────────────────────────────
-
-    fn show_bank_view(&mut self, ui: &mut egui::Ui) {
-        // 利用可能幅から表示スケールを計算（整数スケール）
-        let available_w = ui.available_width();
-        let scale = (available_w / 128.0).floor().max(1.0);
-        let tile_px = 8.0 * scale; // 1 タイルの表示サイズ（px）
-
-        // ── ツールバー（アドレスジャンプ + フォーカスサイズ）
-        let toolbar_resp = egui::Frame::new()
-            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 5 })
-            .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_min_height(24.0);
-            ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
-        let _ = ui.horizontal(|ui| {
-            // アドレスジャンプ入力
-            ui.label(egui::RichText::new("アドレス").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-            ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(0x33, 0x33, 0x33);
-            ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF));
-            let addr_resp = ui.add(
-                egui::TextEdit::singleline(&mut self.address_input)
-                    .desired_width(70.0)
-                    .font(egui::FontId::new(13.0, egui::FontFamily::Proportional))
-                    .hint_text("001000"),
-            );
-
-            let enter_pressed = addr_resp.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let button_clicked = {
-                let btn_color = egui::Color32::from_rgb(0x5E, 0x5E, 0x5E);
-                let btn_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x20, 0x20, 0x20));
-                let cr = egui::CornerRadius::same(5);
-                {
-                    let v = ui.visuals_mut();
-                    v.override_text_color = Some(egui::Color32::WHITE);
-                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-                        state.bg_fill = btn_color;
-                        state.weak_bg_fill = btn_color;
-                        state.bg_stroke = btn_stroke;
-                        state.corner_radius = cr;
-                    }
-                }
-                ui.add(
-                    egui::Button::new(egui::RichText::new("移動").font(egui::FontId::new(13.0, egui::FontFamily::Proportional)))
-                        .min_size(egui::vec2(46.0, 20.0))
-                ).clicked()
-            };
-
-            if enter_pressed || button_clicked {
-                self.jump_to_address();
-                ui.ctx().memory_mut(|m| m.surrender_focus(addr_resp.id));
-            } else if !addr_resp.has_focus() {
-                self.address_input = match self.selected_tile {
-                    Some(idx) => format!("{:06X}", idx * 16),
-                    None      => format!("{:06X}", self.scroll_addr),
-                };
-            }
-
-            ui.separator();
-
-            // フォーカスサイズ切り替えボタン
-            for &fs in &[FocusSize::S8, FocusSize::S16, FocusSize::S32, FocusSize::S64, FocusSize::S128] {
-                let is_active = self.focus_size == fs;
-                let (fg, bg) = if is_active {
-                    (egui::Color32::from_rgb(0x26, 0x26, 0x26), egui::Color32::from_rgb(0xB6, 0xB6, 0xB6))
-                } else {
-                    (egui::Color32::from_rgb(0xB6, 0xB6, 0xB6), egui::Color32::TRANSPARENT)
-                };
-                let label = egui::RichText::new(fs.label())
-                    .font(egui::FontId::new(13.0, egui::FontFamily::Name("bold_font".into())))
-                    .color(fg);
-                let cr = egui::CornerRadius::same(4);
-                {
-                    let v = ui.visuals_mut();
-                    for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-                        state.bg_fill = bg;
-                        state.weak_bg_fill = bg;
-                        state.bg_stroke = egui::Stroke::NONE;
-                        state.corner_radius = cr;
-                    }
-                }
-                let btn = egui::Button::new(label)
-                    .min_size(egui::vec2(22.0, 22.0))
-                    .frame(true);
-                if ui.add(btn).clicked() {
-                    self.focus_size = fs;
-                }
-            }
-        }); // horizontal
-        }); // Frame
-        {
-            let r = toolbar_resp.response.rect;
-            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
-        }
-
-        // ── スクロールビューの準備（self からコピーが必要な値を事前抽出）
-        let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
-        if total_tiles == 0 { return; }
-        let total_rows = (total_tiles + 15) / 16;
-        let texture_id = match &self.bank_texture {
-            Some(t) => t.id(),
-            None => return,
-        };
-        let n = self.focus_size.tile_count();
-        let selected_tile_snap = self.selected_tile;
-        let display_w = 128.0 * scale;
-        let display_h = total_rows as f32 * tile_px;
-
-        // ── ScrollArea のスクロール位置をアドレスジャンプで制御
-        let mut scroll_area = egui::ScrollArea::vertical()
-            .id_salt("bank_scroll")
-            .auto_shrink([false, false]);
-
-        if let Some(addr) = self.pending_scroll_addr.take() {
-            let row = addr / 0x100;
-            scroll_area = scroll_area.vertical_scroll_offset(row as f32 * tile_px);
-        }
-
-        let frame_out = egui::Frame::new()
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 16, bottom: 0 })
-            .show(ui, |ui| { scroll_area.show(ui, |ui| {
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(display_w, display_h),
-                egui::Sense::click(),
-            );
-
-            // テクスチャ描画
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            ui.painter().image(texture_id, rect, uv, egui::Color32::WHITE);
-
-            let painter = ui.painter();
-
-            // マイナーグリッド（タイル単位）
-            let minor = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25);
-            for col in 1..16 {
-                let x = rect.left() + tile_px * col as f32;
-                painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    egui::Stroke::new(0.5, minor),
-                );
-            }
-            for row in 1..total_rows {
-                let y = rect.top() + tile_px * row as f32;
-                painter.line_segment(
-                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    egui::Stroke::new(0.5, minor),
-                );
-            }
-
-            // メジャーグリッド（フォーカスブロック単位）
-            if n > 1 {
-                let major = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 70);
-                for col in (0..=16).step_by(n) {
-                    let x = rect.left() + tile_px * col as f32;
-                    painter.line_segment(
-                        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                        egui::Stroke::new(1.0, major),
-                    );
-                }
-                for row in (0..=total_rows).step_by(n) {
-                    let y = rect.top() + tile_px * row as f32;
-                    painter.line_segment(
-                        [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                        egui::Stroke::new(1.0, major),
-                    );
-                }
-            }
-
-            // タイルクリック検出（フォーカスグリッドに snap）
-            let new_tile = if response.clicked() {
-                response.interact_pointer_pos().and_then(|pos| {
-                    let rel_x = pos.x - rect.left();
-                    let rel_y = pos.y - rect.top();
-                    if rel_x < 0.0 || rel_y < 0.0 { return None; }
-                    let col = (rel_x / tile_px) as usize;
-                    let row = (rel_y / tile_px) as usize;
-                    if col >= 16 { return None; }
-                    let global_tile = row * 16 + col;
-                    (global_tile < total_tiles).then_some(global_tile)
-                })
-            } else {
-                None
-            };
-
-            // 選択ブロックのハイライト
-            if let Some(tile_idx) = selected_tile_snap {
-                let t_row = tile_idx / 16;
-                let t_col = tile_idx % 16;
-                let bx = rect.left() + t_col as f32 * tile_px;
-                let by_ = rect.top()  + t_row as f32 * tile_px;
-                let bs  = tile_px * n as f32;
-                let hl  = egui::Rect::from_min_size(egui::pos2(bx, by_), egui::vec2(bs, bs));
-                painter.rect_stroke(
-                    hl, 0.0,
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 80, 80)),
-                    egui::StrokeKind::Outside,
-                );
-            }
-
-            new_tile
-        }) }); // scroll_area.show / Frame
-
-        let scroll_out = frame_out.inner;
-        // スクロール結果を self に反映
-        if let Some(tile) = scroll_out.inner {
-            self.selected_tile = Some(tile);
-        }
-        let scroll_y = scroll_out.state.offset.y;
-        self.scroll_addr = (scroll_y / tile_px) as usize * 0x100;
-        // 矢印キーのスクロール判定用にビューポート情報を保存
-        self.scroll_top_row = (scroll_y / tile_px) as usize;
-        self.visible_tile_rows = (scroll_out.inner_rect.height() / tile_px).floor() as usize;
-    }
-
-    // ── ドットエディタ ────────────────────────────────────────────
-    // &self で描画意図を返す（データ変更は apply_action で行う）
-
-    fn show_dot_editor(&mut self, ui: &mut egui::Ui) -> Option<EditorAction> {
-        const ICON_NAMES: &[&str] = &[
-            "pencil", "pencil_pattern", "slash",
-            "square", "square_fill", "square_pattern",
-            "circle", "circle_fill", "paint-bucket", "stamp",
-        ];
-        const ICON_BYTES: &[&[u8]] = &[
-            include_bytes!("../../assets/icons/pencil.svg"),
-            include_bytes!("../../assets/icons/pencil_pattern.svg"),
-            include_bytes!("../../assets/icons/slash.svg"),
-            include_bytes!("../../assets/icons/square.svg"),
-            include_bytes!("../../assets/icons/square_fill.svg"),
-            include_bytes!("../../assets/icons/square_pattern.svg"),
-            include_bytes!("../../assets/icons/circle.svg"),
-            include_bytes!("../../assets/icons/circle_fill.svg"),
-            include_bytes!("../../assets/icons/paint-bucket.svg"),
-            include_bytes!("../../assets/icons/stamp.svg"),
-        ];
-        let current_tool = self.drawing_tool;
-        let mut clicked_tool: Option<usize> = None;
-
-        let header_resp = egui::Frame::new()
-            .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 6, bottom: 6 })
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    for (i, (name, bytes)) in ICON_NAMES.iter().zip(ICON_BYTES.iter()).enumerate() {
-                        let is_active = current_tool == i;
-                        let tint = if is_active {
-                            egui::Color32::from_rgb(0x26, 0x26, 0x26)
-                        } else {
-                            egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)
-                        };
-                        let bg = if is_active {
-                            egui::Color32::from_rgb(0xB6, 0xB6, 0xB6)
-                        } else {
-                            egui::Color32::TRANSPARENT
-                        };
-                        let img = egui::Image::from_bytes(
-                            format!("bytes://icon_{name}.svg"),
-                            bytes.to_vec(),
-                        ).fit_to_exact_size(egui::vec2(16.0, 16.0)).tint(tint);
-                        let cr = egui::CornerRadius::same(4);
-                        {
-                            let v = ui.visuals_mut();
-                            for state in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
-                                state.bg_fill = bg;
-                                state.weak_bg_fill = bg;
-                                state.bg_stroke = egui::Stroke::NONE;
-                                state.corner_radius = cr;
-                            }
-                        }
-                        if ui.add(egui::Button::image(img).min_size(egui::vec2(22.0, 22.0))).clicked() {
-                            clicked_tool = Some(i);
-                        }
-                    }
-                });
-            });
-        if let Some(t) = clicked_tool { self.drawing_tool = t; }
-        {
-            let r = header_resp.response.rect;
-            ui.painter().hline(r.x_range(), r.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(0x0C, 0x0C, 0x0C)));
-        }
-
-        ui.add_space(16.0);
-
-        // ── タイルが未選択
-        let Some(top_left_tile) = self.selected_tile else {
-            ui.label("← タイルをクリックして選択");
-            return None;
-        };
-        let Some(rom) = &self.rom else { return None };
-
-        let n = self.focus_size.tile_count(); // ブロック 1 辺のタイル数
-        let block_px = n * 8;                // ブロック 1 辺のドット数
-
-        // フォーカスブロック全体をデコード（N×N タイル → block_px × block_px ドット）
-        let block = decode_block(rom.chr_data(), top_left_tile, 16, n);
-
-        // ── ドットキャンバス（左右16pxのpadding）
-        let pad = 16.0;
-        ui.style_mut().spacing.indent = pad;
-        ui.visuals_mut().indent_has_left_vline = false;
-        let canvas_resp = ui.indent("dot_canvas", |ui| {
-            let available = ui.available_size() - egui::vec2(pad, 0.0); // 右pad分だけ引く
-            let dot_size = (available.x.min(available.y) / block_px as f32).floor().max(1.0);
-            let canvas = dot_size * block_px as f32;
-            let alloc = ui.allocate_exact_size(egui::vec2(canvas, canvas), egui::Sense::click_and_drag());
-            (alloc, dot_size)
-        });
-        let ((rect, response), dot_size) = canvas_resp.inner;
-        let painter = ui.painter();
-
-        for py in 0..block_px {
-            for px in 0..block_px {
-                let fill = self.dat_palette.color32(
-                    self.selected_palette_set,
-                    block[py][px] as usize,
-                    &self.master_palette,
-                );
-                let dot_rect = egui::Rect::from_min_size(
-                    egui::pos2(rect.left() + px as f32 * dot_size, rect.top() + py as f32 * dot_size),
-                    egui::vec2(dot_size, dot_size),
-                );
-                painter.rect_filled(dot_rect, 0.0, fill);
-                // ドットグリッド線（block_px が小さいときのみ描画）
-                if dot_size >= 4.0 {
-                    painter.rect_stroke(
-                        dot_rect, 0.0,
-                        egui::Stroke::new(0.5, egui::Color32::from_gray(60)),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-            }
-        }
-
-        // タイル境界線（フォーカスが 2 タイル以上のとき）
-        if n > 1 && dot_size >= 2.0 {
-            let tile_line_color = egui::Color32::from_rgba_unmultiplied(200, 200, 200, 80);
-            let tile_step = dot_size * 8.0;
-            for t in 1..n {
-                let x = rect.left() + tile_step * t as f32;
-                painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    egui::Stroke::new(1.0, tile_line_color),
-                );
-                let y = rect.top() + tile_step * t as f32;
-                painter.line_segment(
-                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    egui::Stroke::new(1.0, tile_line_color),
-                );
-            }
-        }
-
-        // ── クリック / ドラッグ検出
-        let Some(pos) = response.interact_pointer_pos() else { return None };
-        let rel_x = pos.x - rect.left();
-        let rel_y = pos.y - rect.top();
-        if rel_x < 0.0 || rel_y < 0.0 { return None }
-
-        let px = (rel_x / dot_size) as usize;
-        let py = (rel_y / dot_size) as usize;
-        if px >= block_px || py >= block_px { return None }
-
-        // 右クリック → スポイト
-        if response.secondary_clicked() {
-            return Some(EditorAction::Eyedrop { color_idx: block[py][px] });
-        }
-
-        // クリック / ドラッグしたドットが属するタイルのオフセットを計算
-        let block_col = px / 8;
-        let block_row = py / 8;
-        let top_col = top_left_tile % 16;
-        let top_row = top_left_tile / 16;
-        let tile_global = (top_row + block_row) * 16 + (top_col + block_col);
-        let tile_offset = tile_global * 16;
-        let dot_px = px % 8;
-        let dot_py = py % 8;
-
-        if tile_offset + 16 > rom.chr_data().len() { return None; }
-
-        // 左クリック / 左ドラッグ → 描画
-        let drag_started = response.drag_started_by(egui::PointerButton::Primary);
-        let dragging     = response.dragged_by(egui::PointerButton::Primary);
-        let clicked      = response.clicked_by(egui::PointerButton::Primary);
-
-        if drag_started || dragging || clicked {
-            let push_undo = drag_started || clicked;
-            return Some(EditorAction::PaintDot {
-                tile_offset, px: dot_px, py: dot_py,
-                color: self.drawing_color_idx,
-                push_undo,
-            });
-        }
-
-        None
-    }
-
-    // ── アクション適用 ────────────────────────────────────────────
-
-    fn apply_action(&mut self, action: EditorAction) {
-        match action {
-            EditorAction::SelectDrawingColor { color_idx } => {
-                self.drawing_color_idx = color_idx;
-            }
-            EditorAction::Eyedrop { color_idx } => {
-                self.drawing_color_idx = color_idx;
-            }
-            EditorAction::PaintDot { tile_offset, px, py, color, push_undo } => {
-                let Some(rom) = &mut self.rom else { return };
-                if tile_offset + 16 > rom.chr_data().len() { return }
-
-                if push_undo {
-                    let saved: [u8; 16] = rom.chr_data()[tile_offset..tile_offset + 16]
-                        .try_into()
-                        .unwrap();
-                    if self.undo_stack.len() >= 100 {
-                        self.undo_stack.remove(0);
-                    }
-                    self.undo_stack.push((tile_offset, saved));
-                }
-
-                encode_dot(&mut rom.chr_data_mut()[tile_offset..tile_offset + 16], px, py, color);
-                self.is_modified = true;
-                self.texture_dirty = true;
-            }
-        }
-    }
-
-    /// アドレス入力フィールドの内容をパースして該当タイルへスクロール・フォーカス
-    fn jump_to_address(&mut self) {
-        let raw = self.address_input.trim()
-            .trim_start_matches("0x")
-            .trim_start_matches("0X");
-        if let Ok(addr) = usize::from_str_radix(raw, 16) {
-            let total_tiles = self.rom.as_ref().map_or(0, |r| r.chr_data().len() / 16);
-            if total_tiles > 0 {
-                let tile_idx = (addr / 16).min(total_tiles.saturating_sub(1));
-                let n = self.focus_size.tile_count();
-                let snap_col = (tile_idx % 16 / n) * n;
-                let snap_row = (tile_idx / 16 / n) * n;
-                let snapped  = snap_row * 16 + snap_col;
-
-                self.selected_tile      = Some(snapped);
-                self.pending_scroll_addr = Some(snap_row * 0x100);
-                self.address_input       = format!("{:06X}", snapped * 16);
-                return;
-            }
-        }
-        // パース失敗・範囲外の場合は現在値に戻す
-        self.address_input = match self.selected_tile {
-            Some(idx) => format!("{:06X}", idx * 16),
-            None      => format!("{:06X}", self.scroll_addr),
-        };
-    }
-
-    fn do_undo(&mut self) {
-        let Some((offset, saved)) = self.undo_stack.pop() else { return };
-        let Some(rom) = &mut self.rom else { return };
-        if offset + 16 <= rom.chr_data().len() {
-            rom.chr_data_mut()[offset..offset + 16].copy_from_slice(&saved);
-            self.texture_dirty = true;
-        }
     }
 
     // ── 保存 ──────────────────────────────────────────────────────
@@ -1456,191 +953,9 @@ impl RChrApp {
         self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
     }
 
-    // ── 右情報パネル（250px固定） ─────────────────────────────────
-
-    fn show_info_panel(&mut self, ui: &mut egui::Ui) {
-        ui.visuals_mut().widgets.noninteractive.bg_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x48, 0x48, 0x48));
-
-        // アドレス・タイル情報
-        if let Some(rom) = &self.rom {
-            if !rom.chr_data().is_empty() {
-                let total_tiles = rom.chr_data().len() / 16;
-                ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
-                ui.separator();
-            }
-        }
-
-        ui.add_space(6.0);
-        if let Some(idx) = self.selected_tile {
-            ui.label(egui::RichText::new("タイル").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-            ui.add_space(2.0);
-            ui.label(format!("{}  (0x{:06X})", idx, idx * 16));
-        }
-        ui.add_space(6.0);
-        ui.separator();
-
-        // 描画色セレクタ
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("描画色").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-        ui.add_space(10.0);
-
-        let mut color_action: Option<EditorAction> = None;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            for c in 0..4u8 {
-                let fill = self.dat_palette.color32(self.selected_palette_set, c as usize, &self.master_palette);
-                let is_active = self.drawing_color_idx == c;
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
-                ui.painter().rect_filled(rect, 4.0, fill);
-                ui.painter().rect_stroke(
-                    rect, 4.0,
-                    egui::Stroke::new(if is_active { 2.5 } else { 1.0 },
-                        if is_active { egui::Color32::WHITE } else { egui::Color32::from_rgb(0x50, 0x50, 0x50) }),
-                    egui::StrokeKind::Outside,
-                );
-                if resp.clicked() {
-                    color_action = Some(EditorAction::SelectDrawingColor { color_idx: c });
-                }
-            }
-        });
-        if let Some(action) = color_action {
-            self.apply_action(action);
-        }
-
-        ui.add_space(6.0);
-        ui.separator();
-
-        // パレットパネル
-        ui.add_space(4.0);
-        self.show_palette_panel(ui);
-
-        ui.add_space(4.0);
-        ui.separator();
-
-        // NES パレット（常に表示）
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("NES パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-
-        if let Some((set_idx, color_idx)) = self.editing_palette_cell {
-            ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
-        } else {
-            ui.colored_label(egui::Color32::from_gray(140), "パレットの色をクリックして変更");
-        }
-        ui.add_space(10.0);
-
-        let cell_size = 26.0;
-        let mut selected_nes_idx: Option<u8> = None;
-        for row in 0..8usize {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                for col in 0..8usize {
-                    let nes_idx = (row * 8 + col) as u8;
-                    let [r, g, b] = NES_PALETTE[nes_idx as usize];
-                    let color = egui::Color32::from_rgb(r, g, b);
-                    let (rect, resp) = ui.allocate_exact_size(
-                        egui::vec2(cell_size, cell_size),
-                        egui::Sense::click(),
-                    );
-                    ui.painter().rect_filled(rect, 4.0, color);
-                    // 編集中セルの現在値をハイライト
-                    if let Some((set_idx, color_idx)) = self.editing_palette_cell {
-                        let current_idx = self.dat_palette.sets[set_idx][color_idx];
-                        if current_idx == nes_idx {
-                            ui.painter().rect_stroke(
-                                rect, 4.0,
-                                egui::Stroke::new(2.0, egui::Color32::WHITE),
-                                egui::StrokeKind::Outside,
-                            );
-                        }
-                    }
-                    let clicked = resp.clicked();
-                    resp.on_hover_text(format!("0x{nes_idx:02X}"));
-                    if clicked { selected_nes_idx = Some(nes_idx); }
-                }
-            });
-        }
-        if let (Some(idx), Some((set_idx, color_idx))) = (selected_nes_idx, self.editing_palette_cell) {
-            self.dat_palette.sets[set_idx][color_idx] = idx;
-            self.texture_dirty = true;
-            self.editing_palette_cell = None;
-        }
-    }
-
-    // ── パレットパネル ────────────────────────────────────────────
-
-    fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("パレット").font(egui::FontId::new(15.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-        ui.add_space(6.0);
-
-        let swatch_size = egui::vec2(24.0, 24.0);
-        let mut set_changed = false;
-        let mut open_picker: Option<(usize, usize)> = None;
-
-        for set_idx in 0..4 {
-            let is_selected = self.selected_palette_set == set_idx;
-            let frame = egui::Frame::new()
-                .corner_radius(4.0)
-                .stroke(if is_selected {
-                    egui::Stroke::new(2.0, egui::Color32::WHITE)
-                } else {
-                    egui::Stroke::new(2.0, egui::Color32::TRANSPARENT)
-                })
-                .inner_margin(6.0);
-
-            frame.show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for color_idx in 0..4 {
-                        let color = self.dat_palette.color32(set_idx, color_idx, &self.master_palette);
-                        let (rect, resp) = ui.allocate_exact_size(swatch_size, egui::Sense::click());
-                        ui.painter().rect_filled(rect, 4.0, color);
-                        ui.painter().rect_stroke(
-                            rect, 4.0,
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(0x50, 0x50, 0x50)),
-                            egui::StrokeKind::Outside,
-                        );
-                        // 編集中セルの枠を強調
-                        if self.editing_palette_cell == Some((set_idx, color_idx)) {
-                            ui.painter().rect_stroke(
-                                rect, 4.0,
-                                egui::Stroke::new(2.0, egui::Color32::YELLOW),
-                                egui::StrokeKind::Outside,
-                            );
-                        }
-                        let nes_idx = self.dat_palette.sets[set_idx][color_idx];
-                        let clicked = resp.clicked();
-                        resp.on_hover_text(format!("NES 0x{nes_idx:02X}  クリックで変更"));
-                        if clicked {
-                            open_picker = Some((set_idx, color_idx));
-                        }
-                    }
-                    // ラベル部分クリックでセット選択
-                    ui.add_space(6.0);
-                    let label_resp = ui.label(egui::RichText::new(format!("#{set_idx}")).font(egui::FontId::new(14.0, egui::FontFamily::Name("bold_font".into()))).color(egui::Color32::from_rgb(0xBF, 0xBF, 0xBF)));
-                    if label_resp.interact(egui::Sense::click()).clicked() {
-                        self.selected_palette_set = set_idx;
-                        set_changed = true;
-                    }
-                });
-            });
-            ui.add_space(2.0);
-        }
-
-        if let Some(cell) = open_picker {
-            // 対応するパレットセットも選択状態にする
-            self.selected_palette_set = cell.0;
-            self.editing_palette_cell = Some(cell);
-            set_changed = true;
-        }
-        if set_changed {
-            self.texture_dirty = true;
-        }
-    }
-
     // ── キーボード操作 ────────────────────────────────────────────
 
-    fn handle_keyboard(&mut self, ctx: &egui::Context) {
+    pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let chr_empty = self.rom.as_ref().map_or(true, |r| r.chr_data().is_empty());
         if chr_empty { return }
 
