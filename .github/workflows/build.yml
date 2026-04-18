@@ -90,8 +90,11 @@ jobs:
           iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
           rm -rf "$ICONSET"
 
-          # .app を zip に固める
-          zip -r ${{ matrix.asset_path }} "$APP"
+          # ad-hoc 署名（Gatekeeper の「壊れている」エラーを回避）
+          codesign --force --deep --sign - "$APP"
+
+          # ditto で zip（パーミッション・拡張属性を保持）
+          ditto -c -k --keepParent "$APP" ${{ matrix.asset_path }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
