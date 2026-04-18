@@ -4,5 +4,6 @@ mod dot_editor;
 mod file_ops;
 mod info_panel;
 mod keyboard;
+mod mac;
 mod png_import;
 mod theme;

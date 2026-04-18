@@ -11,7 +11,7 @@ use super::png_import::PngImportDialog;
 const DEFAULT_PAL: &[u8] = include_bytes!("../../assets/rchr.pal");
 const DEFAULT_DAT: &[u8] = include_bytes!("../../assets/rchr.dat");
 /// NES 標準 64色パレット（リセット用）
-const NES_PAL: &[u8] = include_bytes!("../../assets/nes.pal");
+pub(super) const NES_PAL: &[u8] = include_bytes!("../../assets/nes.pal");
 /// 起動時に表示するデフォルトドット絵（R-CHR ロゴ入り CHR バイナリ）
 const DEFAULT_BIN: &[u8] = include_bytes!("../../assets/rchr.bin");
 
@@ -151,40 +151,7 @@ impl eframe::App for RChrApp {
 
         // ── macOS ネイティブメニュー: イベント処理 ─────────────────
         #[cfg(target_os = "macos")]
-        {
-            use crate::native_menu::{self, MenuAction};
-            while let Some(action) = native_menu::try_recv_action() {
-                match action {
-                    MenuAction::About           => self.show_about = true,
-                    MenuAction::FileNew         => self.new_file(),
-                    MenuAction::FileOpen        => self.open_file(),
-                    MenuAction::FileImportPng   => self.open_png_import(),
-                    MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
-                    MenuAction::FileSaveAs      => { if let Err(e) = self.save_file_as() { self.error_msg = Some(e); } }
-                    MenuAction::EditUndo        => self.do_undo(),
-                    MenuAction::ViewDarkMode(v) => {
-                        self.dark_mode = v;
-                        native_menu::set_app_appearance(v);
-                    }
-                    MenuAction::PaletteOpenPal  => self.load_pal_file(),
-                    MenuAction::PaletteOpenDat  => self.load_dat_file(),
-                    MenuAction::PaletteSaveDat  => self.save_dat_file(),
-                    MenuAction::PaletteReset    => {
-                        self.master_palette = MasterPalette::from_pal_bytes(NES_PAL)
-                            .unwrap_or_default();
-                        self.texture_dirty = true;
-                        self.status_msg = Some("NES 標準パレットにリセットしました".into());
-                    }
-                }
-            }
-
-            // macOS ネイティブメニュー: enabled / checked 状態を毎フレーム同期
-            native_menu::sync_state(
-                self.file_path.is_some() && self.is_modified,
-                !self.undo_stack.is_empty(),
-                self.dark_mode,
-            );
-        }
+        self.handle_native_menu(ctx);
 
         if self.texture_dirty {
             if let Some(rom) = &self.rom {
@@ -278,74 +245,7 @@ impl eframe::App for RChrApp {
 
         // ── メニューバー (macOS はネイティブメニューを使うため非表示)
         #[cfg(not(target_os = "macos"))]
-        let _menu_resp = egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("ファイル", |ui| {
-                    if ui.button("新規作成  ⌘N").clicked() {
-                        self.new_file();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("開く…  ⌘O").clicked() {
-                        self.open_file();
-                        ui.close_menu();
-                    }
-                    if ui.button("PNG / BMP をインポート…").clicked() {
-                        self.open_png_import();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    let can_save = self.file_path.is_some() && self.is_modified;
-                    if ui.add_enabled(can_save, egui::Button::new("保存  ⌘S")).clicked() {
-                        if let Err(e) = self.save_file() {
-                            self.error_msg = Some(e);
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("別名で保存…  ⌘⇧S").clicked() {
-                        if let Err(e) = self.save_file_as() {
-                            self.error_msg = Some(e);
-                        }
-                        ui.close_menu();
-                    }
-                });
-                ui.menu_button("編集", |ui| {
-                    let can_undo = !self.undo_stack.is_empty();
-                    if ui.add_enabled(can_undo, egui::Button::new("元に戻す  ⌘Z / Ctrl+Z")).clicked() {
-                        self.do_undo();
-                        ui.close_menu();
-                    }
-                });
-                ui.menu_button("表示", |ui| {
-                    if ui.checkbox(&mut self.dark_mode, "ダークモード").clicked() {
-                        ui.close_menu();
-                    }
-                });
-                ui.menu_button("パレット", |ui| {
-                    if ui.button("PAL ファイルを開く…").clicked() {
-                        self.load_pal_file();
-                        ui.close_menu();
-                    }
-                    if ui.button("DAT ファイルを開く…").clicked() {
-                        self.load_dat_file();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("DAT ファイルを保存…").clicked() {
-                        self.save_dat_file();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("マスターパレットをリセット (NES 標準)").clicked() {
-                        self.master_palette = MasterPalette::from_pal_bytes(NES_PAL)
-                            .unwrap_or_default();
-                        self.texture_dirty = true;
-                        self.status_msg = Some("NES 標準パレットにリセットしました".into());
-                        ui.close_menu();
-                    }
-                });
-            });
-        });
+        self.show_menu_bar(ctx);
 
         // メニューバー直下の1pxボーダー
         egui::TopBottomPanel::top("top_border")
