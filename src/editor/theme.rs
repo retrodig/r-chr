@@ -69,6 +69,16 @@ pub(super) fn font_small_bold() -> egui::FontId {
     egui::FontId::new(FONT_SIZE_SMALL, egui::FontFamily::Name(BOLD_FONT.into()))
 }
 
+/// セクションラベル用 RichText（bold 15px + COL_TEXT）
+pub(super) fn rich_label(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text).font(font_label()).color(COL_TEXT)
+}
+
+/// パレットインデックス用 RichText（bold 14px + COL_TEXT）
+pub(super) fn rich_palette_idx(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text).font(font_palette_idx()).color(COL_TEXT)
+}
+
 // ── サイズ ─────────────────────────────────────────────────────────
 
 /// パレットスウォッチ 1 辺の長さ (px)

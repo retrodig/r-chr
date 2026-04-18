@@ -24,9 +24,7 @@ impl RChrApp {
         ui.add_space(6.0);
         if let Some(idx) = self.selected_tile {
             ui.label(
-                egui::RichText::new("タイル")
-                    .font(theme::font_label())
-                    .color(theme::COL_TEXT),
+                theme::rich_label("タイル"),
             );
             ui.add_space(2.0);
             ui.label(format!("{}  (0x{:06X})", idx, idx * 16));
@@ -37,9 +35,7 @@ impl RChrApp {
         // 描画色セレクタ
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("描画色")
-                .font(theme::font_label())
-                .color(theme::COL_TEXT),
+            theme::rich_label("描画色"),
         );
         ui.add_space(10.0);
 
@@ -84,9 +80,7 @@ impl RChrApp {
         // NES パレット（常に表示）
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("NES パレット")
-                .font(theme::font_label())
-                .color(theme::COL_TEXT),
+            theme::rich_label("NES パレット"),
         );
 
         if let Some((set_idx, color_idx)) = self.editing_palette_cell {
@@ -138,9 +132,7 @@ impl RChrApp {
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("パレット")
-                .font(theme::font_label())
-                .color(theme::COL_TEXT),
+            theme::rich_label("パレット"),
         );
         ui.add_space(6.0);
 
@@ -189,9 +181,7 @@ impl RChrApp {
                     // ラベル部分クリックでセット選択
                     ui.add_space(6.0);
                     let label_resp = ui.label(
-                        egui::RichText::new(format!("#{set_idx}"))
-                            .font(theme::font_palette_idx())
-                            .color(theme::COL_TEXT),
+                        theme::rich_palette_idx(format!("#{set_idx}")),
                     );
                     if label_resp.interact(egui::Sense::click()).clicked() {
                         self.selected_palette_set = set_idx;
