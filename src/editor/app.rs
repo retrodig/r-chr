@@ -829,11 +829,32 @@ impl RChrApp {
     fn show_dot_editor(&self, ui: &mut egui::Ui) -> Option<EditorAction> {
         let header_resp = egui::Frame::new()
             .fill(egui::Color32::from_rgb(0x26, 0x26, 0x26))
-            .inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 5 })
+            .inner_margin(egui::Margin { left: 16, right: 16, top: 4, bottom: 0 })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.set_min_height(24.0);
-                ui.label("ドットエディタ");
+                ui.set_min_height(30.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    const ICONS: &[(&str, &[u8])] = &[
+                        ("pencil",          include_bytes!("../../assets/icons/pencil.svg")),
+                        ("pencil_pattern",  include_bytes!("../../assets/icons/pencil_pattern.svg")),
+                        ("slash",           include_bytes!("../../assets/icons/slash.svg")),
+                        ("square",          include_bytes!("../../assets/icons/square.svg")),
+                        ("square_fill",     include_bytes!("../../assets/icons/square_fill.svg")),
+                        ("square_pattern",  include_bytes!("../../assets/icons/square_pattern.svg")),
+                        ("circle",          include_bytes!("../../assets/icons/circle.svg")),
+                        ("circle_fill",     include_bytes!("../../assets/icons/circle_fill.svg")),
+                        ("paint-bucket",    include_bytes!("../../assets/icons/paint-bucket.svg")),
+                        ("stamp",           include_bytes!("../../assets/icons/stamp.svg")),
+                    ];
+                    for (name, bytes) in ICONS {
+                        let img = egui::Image::from_bytes(
+                            format!("bytes://icon_{name}.svg"),
+                            bytes.to_vec(),
+                        ).fit_to_exact_size(egui::vec2(16.0, 16.0));
+                        ui.add(egui::Button::image(img).min_size(egui::vec2(24.0, 24.0)));
+                    }
+                });
             });
         {
             let r = header_resp.response.rect;
