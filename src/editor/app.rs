@@ -51,6 +51,8 @@ pub struct RChrApp {
     pub(super) drawing_tool: usize,
     /// アンドゥスタック: 1操作 = Vec<(バイトオフセット, 変更前16バイト)>
     pub(super) undo_stack: Vec<Vec<(usize, [u8; 16])>>,
+    /// 現在のドラッグ操作で既にアンドゥ保存済みのタイルオフセット集合
+    pub(super) drag_undo_tiles: std::collections::HashSet<usize>,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
     pub(super) file_path: Option<std::path::PathBuf>,
@@ -98,6 +100,7 @@ impl Default for RChrApp {
             drawing_color_idx: 1,
             drawing_tool: 0,
             undo_stack: Vec::new(),
+            drag_undo_tiles: std::collections::HashSet::new(),
             file_path: None,
             raw_file_data: None,
             is_modified: false,

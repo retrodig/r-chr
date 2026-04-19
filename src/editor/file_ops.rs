@@ -38,6 +38,7 @@ impl RChrApp {
         self.pending_scroll_addr = Some(0);
         self.selected_tile = None;
         self.undo_stack.clear();
+        self.drag_undo_tiles.clear();
         self.is_modified = false;
         self.rom = Some(RomData::Bin(chr_data));
         self.texture_dirty = true;
@@ -113,6 +114,7 @@ impl RChrApp {
         self.pending_scroll_addr = Some(0);
         self.selected_tile = None;
         self.undo_stack.clear();
+        self.drag_undo_tiles.clear();
         self.file_path = save_path;
         self.is_modified = false;
         self.rom = Some(rom_data);
