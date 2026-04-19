@@ -40,6 +40,35 @@ fn bresenham(x0: usize, y0: usize, x1: usize, y1: usize) -> Vec<(usize, usize)> 
     pts
 }
 
+/// 矩形ドット生成（kind: 3=枠線, 4=塗り, 5=パターン）
+fn rect_dots(sx: usize, sy: usize, ex: usize, ey: usize, kind: usize) -> Vec<(usize, usize)> {
+    let (x0, x1) = (sx.min(ex), sx.max(ex));
+    let (y0, y1) = (sy.min(ey), sy.max(ey));
+    let parity = (sx + sy) % 2;
+    let mut pts = Vec::new();
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let draw = match kind {
+                3 => x == x0 || x == x1 || y == y0 || y == y1,
+                4 => true,
+                5 => (x + y) % 2 == parity,
+                _ => false,
+            };
+            if draw { pts.push((x, y)); }
+        }
+    }
+    pts
+}
+
+/// ツール種別からドット座標列を生成（線・矩形共通）
+fn shape_dots(sx: usize, sy: usize, ex: usize, ey: usize, tool: usize) -> Vec<(usize, usize)> {
+    match tool {
+        2 => bresenham(sx, sy, ex, ey),
+        3 | 4 | 5 => rect_dots(sx, sy, ex, ey, tool),
+        _ => vec![],
+    }
+}
+
 // ── ドットエディタ ────────────────────────────────────────────────
 
 impl RChrApp {
@@ -175,8 +204,8 @@ impl RChrApp {
             }
         }
 
-        // ── 線ツール: プレビュー描画（ドラッグ中）
-        if self.drawing_tool == 2 {
+        // ── 線・矩形ツール: プレビュー描画（ドラッグ中、tool=2-5）
+        if matches!(self.drawing_tool, 2..=5) {
             if let Some((sx, sy)) = self.line_start_dot {
                 let cur = response.interact_pointer_pos().or_else(|| response.hover_pos());
                 if let Some(p) = cur {
@@ -190,7 +219,7 @@ impl RChrApp {
                             self.drawing_color_idx as usize,
                             &self.master_palette,
                         );
-                        for (dx, dy) in bresenham(sx, sy, cx, cy) {
+                        for (dx, dy) in shape_dots(sx, sy, cx, cy, self.drawing_tool) {
                             if dx >= block_px || dy >= block_px { continue; }
                             let dot_rect = egui::Rect::from_min_size(
                                 egui::pos2(rect.left() + dx as f32 * dot_size, rect.top() + dy as f32 * dot_size),
@@ -203,8 +232,8 @@ impl RChrApp {
             }
         }
 
-        // ── 線ツール: ドラッグ終了検出（ボタン離した瞬間、interact_pointer_pos が None になる前に処理）
-        if self.drawing_tool == 2 && self.line_start_dot.is_some() {
+        // ── 線・矩形ツール: ドラッグ終了検出（tool=2-5）
+        if matches!(self.drawing_tool, 2..=5) && self.line_start_dot.is_some() {
             let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
             if just_released {
                 let end = ui.ctx().input(|i| i.pointer.hover_pos());
@@ -220,7 +249,8 @@ impl RChrApp {
                         (ex, ey)
                     })
                 }).unwrap_or((sx, sy));
-                let pixels = bresenham(sx, sy, ex, ey)
+                let tool = self.drawing_tool;
+                let pixels = shape_dots(sx, sy, ex, ey, tool)
                     .into_iter()
                     .filter_map(|(dx, dy)| {
                         if dx >= block_px || dy >= block_px { return None; }
@@ -259,8 +289,8 @@ impl RChrApp {
 
         if tile_offset + 16 > chr_len { return None; }
 
-        // ── 線ツール: ドラッグ開始
-        if self.drawing_tool == 2 {
+        // ── 線・矩形ツール: ドラッグ開始 / 中 / クリック（tool=2-5）
+        if matches!(self.drawing_tool, 2..=5) {
             if response.drag_started_by(egui::PointerButton::Primary) {
                 self.line_start_dot = Some((px, py));
                 return None;
@@ -268,7 +298,7 @@ impl RChrApp {
             if response.dragged_by(egui::PointerButton::Primary) {
                 return None; // プレビューは上で描画済み
             }
-            // クリック（ドラッグなし）: 1 点の線として確定
+            // クリック（ドラッグなし）: 1 点として確定
             if response.clicked_by(egui::PointerButton::Primary) {
                 let pixels = vec![(tile_offset, dot_px, dot_py)];
                 return Some(EditorAction::ApplyLine { pixels });
