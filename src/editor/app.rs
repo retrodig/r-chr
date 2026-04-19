@@ -55,6 +55,8 @@ pub struct RChrApp {
     pub(super) drag_undo_tiles: std::collections::HashSet<usize>,
     /// ペン（パターン）ツールのドラッグ起点パリティ（(global_x + global_y) % 2）
     pub(super) drag_pattern_parity: u8,
+    /// 線ツールのドラッグ起点（ブロック内ドット座標）
+    pub(super) line_start_dot: Option<(usize, usize)>,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
     pub(super) file_path: Option<std::path::PathBuf>,
@@ -104,6 +106,7 @@ impl Default for RChrApp {
             undo_stack: Vec::new(),
             drag_undo_tiles: std::collections::HashSet::new(),
             drag_pattern_parity: 0,
+            line_start_dot: None,
             file_path: None,
             raw_file_data: None,
             is_modified: false,

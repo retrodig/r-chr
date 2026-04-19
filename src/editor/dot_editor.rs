@@ -14,6 +14,30 @@ pub(super) enum EditorAction {
     Eyedrop { color_idx: u8 },
     /// 描画色の選択
     SelectDrawingColor { color_idx: u8 },
+    /// 線ツール：確定したドット列 (tile_offset, px_in_tile, py_in_tile) を一括適用
+    ApplyLine { pixels: Vec<(usize, usize, usize)> },
+}
+
+// ── ユーティリティ ────────────────────────────────────────────────
+
+/// Bresenham の直線アルゴリズム（ドット座標リストを返す）
+fn bresenham(x0: usize, y0: usize, x1: usize, y1: usize) -> Vec<(usize, usize)> {
+    let (mut x, mut y) = (x0 as i32, y0 as i32);
+    let (x1, y1) = (x1 as i32, y1 as i32);
+    let dx = (x1 - x).abs();
+    let dy = -(y1 - y).abs();
+    let sx: i32 = if x < x1 { 1 } else { -1 };
+    let sy: i32 = if y < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let mut pts = Vec::new();
+    loop {
+        pts.push((x as usize, y as usize));
+        if x == x1 && y == y1 { break; }
+        let e2 = 2 * err;
+        if e2 >= dy { err += dy; x += sx; }
+        if e2 <= dx { err += dx; y += sy; }
+    }
+    pts
 }
 
 // ── ドットエディタ ────────────────────────────────────────────────
@@ -86,13 +110,15 @@ impl RChrApp {
             ui.label("← タイルをクリックして選択");
             return None;
         };
-        let Some(rom) = &self.rom else { return None };
 
         let n = self.focus_size.tile_count(); // ブロック 1 辺のタイル数
         let block_px = n * 8;                // ブロック 1 辺のドット数
 
-        // フォーカスブロック全体をデコード（N×N タイル → block_px × block_px ドット）
-        let block = decode_block(rom.chr_data(), top_left_tile, 16, n);
+        // フォーカスブロック全体をデコード（rom の借用をここで解放）
+        let (block, chr_len) = {
+            let Some(rom) = self.rom.as_ref() else { return None };
+            (decode_block(rom.chr_data(), top_left_tile, 16, n), rom.chr_data().len())
+        };
 
         // ── ドットキャンバス（左右16pxのpadding）
         let pad = theme::PANEL_PADDING;
@@ -149,6 +175,63 @@ impl RChrApp {
             }
         }
 
+        // ── 線ツール: プレビュー描画（ドラッグ中）
+        if self.drawing_tool == 2 {
+            if let Some((sx, sy)) = self.line_start_dot {
+                let cur = response.interact_pointer_pos().or_else(|| response.hover_pos());
+                if let Some(p) = cur {
+                    let rx = p.x - rect.left();
+                    let ry = p.y - rect.top();
+                    if rx >= 0.0 && ry >= 0.0 {
+                        let cx = ((rx / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let cy = ((ry / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let preview_color = self.dat_palette.color32(
+                            self.selected_palette_set,
+                            self.drawing_color_idx as usize,
+                            &self.master_palette,
+                        );
+                        for (dx, dy) in bresenham(sx, sy, cx, cy) {
+                            if dx >= block_px || dy >= block_px { continue; }
+                            let dot_rect = egui::Rect::from_min_size(
+                                egui::pos2(rect.left() + dx as f32 * dot_size, rect.top() + dy as f32 * dot_size),
+                                egui::vec2(dot_size, dot_size),
+                            );
+                            painter.rect_filled(dot_rect, 0.0, preview_color);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 線ツール: ドラッグ終了検出（ボタン離した瞬間、interact_pointer_pos が None になる前に処理）
+        if self.drawing_tool == 2 && self.line_start_dot.is_some() {
+            let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+            if just_released {
+                let end = ui.ctx().input(|i| i.pointer.hover_pos());
+                let top_col = top_left_tile % 16;
+                let top_row = top_left_tile / 16;
+                let (sx, sy) = self.line_start_dot.take().unwrap();
+                let (ex, ey) = end.and_then(|p| {
+                    let rx = p.x - rect.left();
+                    let ry = p.y - rect.top();
+                    (rx >= 0.0 && ry >= 0.0).then(|| {
+                        let ex = ((rx / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let ey = ((ry / dot_size) as usize).min(block_px.saturating_sub(1));
+                        (ex, ey)
+                    })
+                }).unwrap_or((sx, sy));
+                let pixels = bresenham(sx, sy, ex, ey)
+                    .into_iter()
+                    .filter_map(|(dx, dy)| {
+                        if dx >= block_px || dy >= block_px { return None; }
+                        let off = ((top_row + dy / 8) * 16 + (top_col + dx / 8)) * 16;
+                        (off + 16 <= chr_len).then_some((off, dx % 8, dy % 8))
+                    })
+                    .collect();
+                return Some(EditorAction::ApplyLine { pixels });
+            }
+        }
+
         // ── クリック / ドラッグ検出
         let Some(pos) = response.interact_pointer_pos() else { return None };
         let rel_x = pos.x - rect.left();
@@ -174,9 +257,26 @@ impl RChrApp {
         let dot_px = px % 8;
         let dot_py = py % 8;
 
-        if tile_offset + 16 > rom.chr_data().len() { return None; }
+        if tile_offset + 16 > chr_len { return None; }
 
-        // 左クリック / 左ドラッグ → 描画
+        // ── 線ツール: ドラッグ開始
+        if self.drawing_tool == 2 {
+            if response.drag_started_by(egui::PointerButton::Primary) {
+                self.line_start_dot = Some((px, py));
+                return None;
+            }
+            if response.dragged_by(egui::PointerButton::Primary) {
+                return None; // プレビューは上で描画済み
+            }
+            // クリック（ドラッグなし）: 1 点の線として確定
+            if response.clicked_by(egui::PointerButton::Primary) {
+                let pixels = vec![(tile_offset, dot_px, dot_py)];
+                return Some(EditorAction::ApplyLine { pixels });
+            }
+            return None;
+        }
+
+        // 左クリック / 左ドラッグ → 描画（ペン系ツール）
         let drag_started = response.drag_started_by(egui::PointerButton::Primary);
         let dragging     = response.dragged_by(egui::PointerButton::Primary);
         let clicked      = response.clicked_by(egui::PointerButton::Primary);
@@ -202,6 +302,9 @@ impl RChrApp {
             }
             EditorAction::Eyedrop { color_idx } => {
                 self.drawing_color_idx = color_idx;
+            }
+            EditorAction::ApplyLine { pixels } => {
+                self.apply_line(pixels);
             }
             EditorAction::PaintDot { tile_offset, px, py, color, push_undo } => {
                 let chr_len = match &self.rom {
@@ -274,6 +377,36 @@ impl RChrApp {
             Some(idx) => format!("{:06X}", idx * 16),
             None      => format!("{:06X}", self.scroll_addr),
         };
+    }
+
+    pub(super) fn apply_line(&mut self, pixels: Vec<(usize, usize, usize)>) {
+        if pixels.is_empty() { return; }
+        let chr_len = match &self.rom {
+            Some(r) => r.chr_data().len(),
+            None => return,
+        };
+        // undo バッチ: 影響タイルを重複なく保存
+        let mut seen = std::collections::HashSet::new();
+        let mut batch: Vec<(usize, [u8; 16])> = Vec::new();
+        for &(off, _, _) in &pixels {
+            if off + 16 <= chr_len && seen.insert(off) {
+                let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                    [off..off + 16].try_into().unwrap();
+                batch.push((off, saved));
+            }
+        }
+        self.push_undo_batch(batch);
+        // ドット書き込み
+        let color = self.drawing_color_idx;
+        for (off, px, py) in pixels {
+            if off + 16 <= chr_len {
+                if let Some(rom) = &mut self.rom {
+                    encode_dot(&mut rom.chr_data_mut()[off..off + 16], px, py, color);
+                }
+            }
+        }
+        self.is_modified = true;
+        self.texture_dirty = true;
     }
 
     pub(super) fn push_undo_batch(&mut self, batch: Vec<(usize, [u8; 16])>) {
