@@ -9,406 +9,378 @@
   <img width="100%" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/R-CHR.png">
 </p>
 
-NES (ファミコン) 用 CHR タイルエディタ。Rust + egui 製。
+This is a CHR tile editor for the NES (Famicom) created using Rust and egui.
 
-YY-CHR の基本機能に加え、10 種類の描画ツール・PNG インポート・連続スクロール表示など使い勝手を向上させた機能を搭載。
+In addition to the basic features of YY-CHR, it includes 10 types of drawing tools, PNG import, and continuous scrolling display, all designed to enhance usability.
 
----
 
-## ビルド・起動
+## Build and Launch
 
 ```bash
 cargo run --release
 ```
 
-Rust 1.80 以降が必要。依存ライブラリは Cargo が自動取得する。
+Requires Rust 1.80 or later.
 
----
+Cargo will automatically fetch the required libraries.
 
-## 基本的な使い方
+## Basic Usage
 
-### ファイルを開く
+### Open File
 
-**ファイル → 開く…** から対応ファイルを選択するか、ウィンドウに**ドラッグ＆ドロップ**する。
+You can open a file in Bank View by selecting it from **File → Open…** or by **dragging and dropping** it into the window.
 
-対応フォーマット:
+Supported Formats:
 
-- **`.nes`** — iNES フォーマット。CHR-ROM が含まれる ROM に対応
-- **`.bin`** — ヘッダなし生 CHR バイナリ
-- **`.zip`** — ZIP 内の最初の `.nes` ファイルを自動展開して読み込む
+- **`.nes`** — iNES format. Supports ROMs that include CHR-ROM
+- **`.bin`** — Headerless raw CHR binary
+- **`.zip`** — Automatically extract and load the first `.nes` file in the ZIP
 
-### 新規作成
+### New File
 
-**ファイル → 新規作成** で空の 16KB CHR データ（`newfile`）を作成する。
+**File → New File** creates an empty 16KB CHR data file (`newfile`).
 
-### 保存
+### Save
 
-| 操作 | ショートカット |
-|------|--------------|
-| 上書き保存 | `⌘S` / `Ctrl+S` |
-| 別名で保存 | `⌘⇧S` / `Ctrl+Shift+S` |
+| Action | Shortcut |
+|--------|----------|
+| Save | `⌘S` / `Ctrl+S` |
+| Save As | `⌘⇧S` / `Ctrl+Shift+S` |
 
-未保存の変更がある場合、タイトルバーにアスタリスク（`*`）が表示される。
-ウィンドウを閉じようとすると確認ダイアログが出る。
+When there are unsaved changes, an asterisk (`*`) is shown in the title bar.
+A confirmation dialog appears when you try to close the window.
 
----
-
-## 画面構成
+## Layout
 
 ```
 ┌─────────────────┬──────────────────┬─────────────┐
-│  メニューバー                                       │
+│  Menu Bar                                         │
 ├─────────────────┼──────────────────┼─────────────┤
-│                 │  ツールバー       │             │
+│                 │  Toolbar         │             │
 │                 ├──────────────────┤             │
-│  バンクビュー    │                  │ 情報パネル   │
-│                 │  ドットエディタ   │             │
-│  全 CHR を縦長  │                  │ パレット     │
-│  で表示。        │  選択タイルを    │ セット       │
-│  スクロールで    │  拡大表示・      │             │
-│  全体を確認。    │  描画ツールで    │ 描画色       │
-│                 │  編集する        │             │
+│  Bank View      │                  │ Info Panel  │
+│                 │  Dot Editor      │             │
+│  Displays all   │                  │ Palette     │
+│  CHR data in    │  Enlarged view   │ Sets        │
+│  a vertical     │  of the selected │             │
+│  strip.         │  tile. Draw and  │ Draw Color  │
+│  Scroll to      │  edit with       │             │
+│  navigate.      │  drawing tools.  │             │
 │                 │                  │             │
 └─────────────────┴──────────────────┴─────────────┘
 ```
 
-- **バンクビュー**（左）: 最低幅 410px。ウィンドウ幅に合わせて整数倍スケーリング
-- **ドットエディタ**（中央）: リサイズ可能。最小 180px
-- **情報パネル**（右）: 固定幅 245px
+- **Bank View** (left): Minimum width 410px. Integer-scale zoom to fit window width
+- **Dot Editor** (center): Resizable. Minimum 180px
+- **Info Panel** (right): Fixed width 245px
+
+## Bank View
+
+### Scrolling
+
+Displays all CHR data as a vertical texture with 16 tiles per row (128px).
+1 row = 16 tiles × 16 bytes = **0x100 bytes**. Use the scrollbar to navigate up and down.
+
+### Address Jump
+
+Enter a hex address in the "Address:" field in the toolbar and press the **Go** button or `Enter` to jump to that position.
+
+### Focus Size
+
+The selection block (= editing unit in the Dot Editor) can be switched between 5 sizes.
+
+| Button | Size | Tiles |
+|--------|------|-------|
+| `8`    | 8×8 px   | 1×1 tiles  |
+| `16`   | 16×16 px | 2×2 tiles  |
+| `32`   | 32×32 px | 4×4 tiles  |
+| `64`   | 64×64 px | 8×8 tiles  |
+| `128`  | 128×128 px | 16×16 tiles |
+
+### Tile Selection
+
+Clicking a tile sets it as the selection origin, and the Dot Editor displays the tile block for the current focus size.
+
+## Dot Editor
+
+The selected tile block (based on focus size) is displayed enlarged for editing.
+Click the toolbar icons or use keyboard shortcuts to select tools.
+
+### Common Operations
+
+| Action | Description |
+|--------|-------------|
+| Right-click | Eyedropper — sets the clicked pixel's color as the drawing color |
 
 ---
 
-## バンクビュー
+### Drawing Tools
 
-### スクロール
+#### 🖊 Pencil
 
-全 CHR データを 16 タイル幅（128px）の縦長テクスチャとして表示する。
-1 行 = 16 タイル × 16 バイト = **0x100 バイト**。スクロールバーで上下に移動できる。
+Click and drag to draw one pixel at a time. Even when dragging across multiple tiles, all changes can be undone in a single Undo step.
 
-### アドレスジャンプ
+#### ⬡ Pencil (Pattern)
 
-ツールバーの「アドレス:」欄に 16 進アドレスを入力して **移動** ボタンを押すか `Enter` で指定位置へ移動する。
+Draws in a checkerboard pattern using `(x+y) % 2` parity from the click origin, skipping every other pixel. The pattern remains seamless even across tile boundaries.
 
-### フォーカスサイズ
+#### ／ Line
 
-選択ブロック（＝ドットエディタの編集単位）を 5 段階で切り替える。
+Click to set a start point and drag to draw a straight line. Uses Bresenham's algorithm for integer-precise lines. A real-time preview is shown while dragging. **Confirmed on button release.**
 
-| ボタン | サイズ | タイル数 |
-|--------|--------|----------|
-| `8`    | 8×8 px   | 1×1 タイル  |
-| `16`   | 16×16 px | 2×2 タイル  |
-| `32`   | 32×32 px | 4×4 タイル  |
-| `64`   | 64×64 px | 8×8 タイル  |
-| `128`  | 128×128 px | 16×16 タイル |
+#### □ Rectangle (Outline)
 
-### タイルのクリック選択
+Drag to specify two corners and draw only the outer border. **Confirmed on button release.**
 
-クリックしたタイルが選択起点になり、ドットエディタにフォーカスサイズ分のタイルが展開される。
+#### ■ Rectangle (Fill)
 
----
+Fills the entire interior of the rectangle. **Confirmed on button release.**
 
-## ドットエディタ
+#### ▨ Rectangle (Pattern)
 
-選択タイル（フォーカスサイズ分）を拡大表示して編集する。  
-ツールバーのアイコンをクリックするか、ショートカットキーでツールを選択する。
+Fills the rectangle area with a checkerboard pattern based on the origin parity. **Confirmed on button release.**
 
-### 共通操作
+#### ○ Ellipse (Outline)
 
-| 操作 | 内容 |
-|------|------|
-| 右クリック | スポイト（クリックした点の色を描画色に設定） |
+Defines an ellipse by its bounding box (two diagonal corners) and draws the outline only. Combines left/right row endpoints and top/bottom column endpoints for a gap-free outline. **Confirmed on button release.**
 
----
+#### ● Ellipse (Fill)
 
-### 描画ツール一覧
+Fills the entire interior of the ellipse using a scanline method. **Confirmed on button release.**
 
-#### 🖊 ペン（Pencil）
+#### 🪣 Flood Fill
 
-クリック・ドラッグで 1 ドットずつ自由に描画する。ドラッグでまたいだ複数タイルも 1 回の Undo で戻せる。
+Fills all connected pixels of the same color index at the clicked position using BFS (breadth-first search). 4-directional connectivity. Does nothing if the clicked color matches the drawing color.
 
-#### ⬡ ペン（パターン）
+#### 🔲 Stamp
 
-クリック起点のチェッカーボードパリティ `(x+y) % 2` を基準に、1 ドット飛ばしのパターンで描画する。タイルをまたいでも連続した市松模様になる。
+A two-phase copy & paste tool.
 
-#### ／ 線（Line）
+| Phase | Action | Behavior |
+|-------|--------|----------|
+| **Select (Phase 1)** | Drag | Preview the selection with a dashed border |
+| | Release | Confirm the area and copy it into the buffer |
+| **Paste (Phase 2)** | Drag | Dashed outline + pixel preview follows the cursor |
+| | Release | Write to CHR (buffer is retained) |
+| | Right-click | Cancel and return to Phase 1 |
 
-クリック起点からドラッグして直線を描く。Bresenham アルゴリズムによる整数演算ラインで、ドラッグ中リアルタイムプレビューが表示される。**ボタンを離した瞬間に確定**。
+The buffer is retained so you can stamp the same content multiple times.
 
-#### □ 矩形（枠線）
+## Copy & Paste
 
-対角 2 点をドラッグで指定し、外周のみを描画する。**ボタンを離した瞬間に確定**。
+| Action | Shortcut |
+|--------|----------|
+| Copy | `⌘C` / `Ctrl+C` |
+| Paste | `⌘V` / `Ctrl+V` |
 
-#### ■ 矩形（塗り）
+Copies the current focus-size tile block to the clipboard and pastes it at the selected tile position. Paste can be undone.
 
-矩形内部をすべて塗りつぶす。**ボタンを離した瞬間に確定**。
+## Keyboard Shortcuts
 
-#### ▨ 矩形（パターン）
+| Key | Action |
+|-----|--------|
+| `↑` `↓` `←` `→` | Move selected tile by 1 tile |
+| `Z` / `X` / `C` / `V` | Switch palette set 0–3 |
+| `⌘N` / `Ctrl+N` | New file |
+| `⌘Z` / `Ctrl+Z` | Undo |
+| `⌘C` / `Ctrl+C` | Copy tiles |
+| `⌘V` / `Ctrl+V` | Paste tiles |
+| `⌘S` / `Ctrl+S` | Save |
+| `⌘⇧S` / `Ctrl+Shift+S` | Save As |
 
-矩形の範囲内を起点パリティのチェッカーボードパターンで塗る。**ボタンを離した瞬間に確定**。
+When the selected tile moves off-screen with the arrow keys, the view auto-scrolls.
 
-#### ○ 楕円（枠線）
+## Palette
 
-バウンディングボックス（対角 2 点）で楕円を定義し、輪郭のみを描画する。各行の左右端点と各列の上下端点を組み合わせて隙間のない輪郭を生成する。**ボタンを離した瞬間に確定**。
+### Palette Panel
 
-#### ● 楕円（塗り）
+Displays the NES palette (DAT palette) as 4 sets × 4 colors. Select a cell and choose a color from the NES 64-color picker to change it.
 
-スキャンライン法で楕円の内部をすべて塗りつぶす。**ボタンを離した瞬間に確定**。
+### Palette Set Switching
 
-#### 🪣 塗りつぶし（Flood Fill）
+Switch the set used for Bank View rendering with the `Z` / `X` / `C` / `V` keys.
 
-クリックした位置の色インデックスが連続している範囲を BFS（幅優先探索）で塗りつぶす。4 方向連結。クリックした色と描画色が同じ場合は何もしない。
+### Palette Menu
 
-#### 🔲 スタンプ
+The following operations are available from the **Palette** menu.
 
-2 フェーズ操作のコピー＆ペーストツール。
+| Menu Item | Description |
+|-----------|-------------|
+| Open PAL file… | Load a `.pal` file (192 bytes = 64 colors × 3 RGB bytes) and overwrite the master palette |
+| Open DAT file… | Load a `.dat` file (16+ bytes) and update the palette sets |
+| Save DAT file… | Export the current palette sets as a `.dat` file |
+| Reset Master Palette (NES Standard) | Restore the built-in NES standard 64-color palette |
 
-| フェーズ | 操作 | 動作 |
-|---------|------|------|
-| **選択（Phase1）** | ドラッグ | 点線で範囲プレビュー |
-| | 離す | 範囲を確定してバッファに取り込む |
-| **貼り付け（Phase2）** | ドラッグ | 点線＋ピクセルプレビューが追従 |
-| | 離す | CHR に書き込み（バッファは保持） |
-| | 右クリック | キャンセルして Phase1 へ |
+### Default Palette
 
-バッファは保持されるため同じ内容を何度でもスタンプできる。
+On startup, `assets/rchr.pal` (master palette) and `assets/rchr.dat` (palette sets) are loaded automatically.
+Compatible with YY-CHR format.
 
----
+## PNG Import
 
-## コピー & ペースト
+While YY-CHR's "Paste Image" only supports 8bpp indexed BMP / 8-bit indexed PNG,
+r-chr accepts all of the following:
 
-| 操作 | ショートカット |
-|------|--------------|
-| コピー | `⌘C` / `Ctrl+C` |
-| ペースト | `⌘V` / `Ctrl+V` |
+- Indexed color PNG (1-bit / 2-bit / 4-bit / 8-bit)
+- Full color PNG (RGB / RGBA)
+- PNG with transparency (tRNS chunk / alpha channel)
 
-現在のフォーカスサイズ分のタイルブロックをクリップボードに保存し、選択タイル位置に貼り付ける。ペーストは Undo で元に戻せる。
+### How to Open
 
----
+- **File → Import PNG…** to open a file selection dialog
+- **Drag and drop** a PNG file onto the window
 
-## キーボードショートカット
+> A NES / BIN file must be opened first.
 
-| キー | 動作 |
-|------|------|
-| `↑` `↓` `←` `→` | 選択タイルを 1 タイルずつ移動 |
-| `Z` / `X` / `C` / `V` | パレットセット 0〜3 を切り替え |
-| `⌘N` / `Ctrl+N` | 新規作成 |
-| `⌘Z` / `Ctrl+Z` | 元に戻す（Undo） |
-| `⌘C` / `Ctrl+C` | タイルコピー |
-| `⌘V` / `Ctrl+V` | タイルペースト |
-| `⌘S` / `Ctrl+S` | 上書き保存 |
-| `⌘⇧S` / `Ctrl+Shift+S` | 別名で保存 |
+### Import Dialog
 
-矢印キーで選択タイルが画面外に出た場合は自動スクロールする。
-
----
-
-## パレット
-
-### パレットパネル
-
-4 セット × 4 色の NES パレット（DAT パレット）を表示する。セルをクリックすると NES 64 色ピッカーが開き、色を変更できる。
-
-### パレットセット切り替え
-
-バンクビューのレンダリングに使うセットを `Z` / `X` / `C` / `V` キーで切り替える。
-
-### パレットメニュー
-
-**パレット** メニューから以下の操作が可能。
-
-| メニュー項目 | 内容 |
-|------------|------|
-| PAL ファイルを開く… | `.pal`（192 バイト = 64 色 × RGB 3 バイト）を読み込んでマスターパレットを上書き |
-| DAT ファイルを開く… | `.dat`（16 バイト以上）を読み込んでパレットセットを更新 |
-| DAT ファイルを保存… | 現在のパレットセットを `.dat` として書き出す |
-| マスターパレットをリセット (NES 標準) | 内蔵の NES 標準 64 色パレットに戻す |
-
-### デフォルトパレット
-
-起動時に `assets/rchr.pal`（マスターパレット）と `assets/rchr.dat`（パレットセット）を自動読み込みする。
-YY-CHR 互換フォーマット。
-
----
-
-## PNG インポート
-
-YY-CHR の「画像貼り付け」が 8bpp インデックス BMP / 8bit インデックス PNG のみ対応しているのに対し、
-r-chr は以下の形式をすべて受け入れる。
-
-- インデックスカラー PNG（1bit / 2bit / 4bit / 8bit）
-- フルカラー PNG（RGB / RGBA）
-- 透明色（tRNS チャンク / アルファチャンネル）を含む PNG
-
-### 開き方
-
-- **ファイル → PNG をインポート…** でファイル選択ダイアログを開く
-- PNG ファイルをウィンドウに**ドラッグ＆ドロップ**する
-
-> NES / BIN ファイルを先に開いておく必要がある。
-
-### インポートダイアログ
-
-PNG を選択すると確認ダイアログが開く。
+After selecting a PNG, a confirmation dialog appears.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│  PNG インポート                                          │
+│  PNG Import                                            │
 │                                                        │
-│  ファイル: sprite.png  (32×32 px = 4×4 タイル)         │
+│  File: sprite.png  (32×32 px = 4×4 tiles)             │
 │                                                        │
-│  マッピング戦略:                                         │
-│  ● パレット照合 (推奨)  ○ インデックス直接  ○ RGB近似   │
+│  Mapping Strategy:                                     │
+│  ● Palette Match (recommended)  ○ Index Direct  ○ RGB Approx │
 │                                                        │
-│  ⚠ 3 色がパレットに完全一致せず近似されました            │
-│  ⚠ 透明パレットエントリ 1 色 → インデックス 0 に変換     │
+│  ⚠ 3 colors could not be exactly matched and were approximated │
+│  ⚠ 1 transparent palette entry → mapped to index 0    │
 │                                                        │
-│  プレビュー（変換後）:                                   │
-│  [変換後の CHR 色でレンダリングされたプレビュー]          │
+│  Preview (after conversion):                           │
+│  [Preview rendered in converted CHR colors]            │
 │                                                        │
-│  貼り付け先: タイル 0 (0x000000) から                   │
+│  Paste at: Tile 0 (0x000000)                          │
 │                                                        │
-│         [キャンセル]      [貼り付け]                    │
+│         [Cancel]      [Paste]                          │
 └────────────────────────────────────────────────────────┘
 ```
 
-- **貼り付け先**: バンクビューで選択中のタイルが起点になる
-- **貼り付け後**: Undo（`⌘Z` / `Ctrl+Z`）で元に戻せる
-- **マッピング戦略**: ラジオボタンで切り替えるとプレビューがリアルタイムで更新される
+- **Paste at**: The currently selected tile in Bank View is used as the origin
+- **After pasting**: Can be undone with Undo (`⌘Z` / `Ctrl+Z`)
+- **Mapping Strategy**: Switching via radio button updates the preview in real time
 
----
+### Mapping Strategies
 
-### マッピング戦略
+3 methods are available for converting PNG pixels to CHR color indices (0–3).
+The strategy is **auto-selected** based on the file type, but can be changed manually in the dialog.
 
-PNG のピクセルを CHR カラーインデックス（0〜3）に変換する方法を 3 種類から選べる。
-ファイルの種類に応じて**自動選択**されるが、ダイアログで手動切り替えも可能。
+#### Palette Match (recommended for Aseprite)
 
----
+**Auto-selected when**: Indexed color PNG with a PLTE chunk
 
-#### パレット照合（Aseprite 推奨）
+Ideal when working in Aseprite with the NES master palette.
 
-**自動選択条件**: インデックスカラー PNG かつ PLTE チャンクあり
-
-Aseprite などで NES マスターパレットを使って作業した場合に最適。
-
-**変換フロー**:
+**Conversion flow**:
 
 ```
-PLTE[i] の RGB
-  → NES マスターパレット 64 色に最近傍マッチ
-  → 現在の DAT パレットセット 4 色の中で最も近い色を選択
-  → CHR インデックス 0〜3 に変換
+PLTE[i] RGB
+  → Nearest-neighbor match among NES master palette 64 colors
+  → Select the closest of the 4 colors in the current DAT palette set
+  → Convert to CHR index 0–3
 ```
 
-**Aseprite での手順**:
+**Aseprite workflow**:
 
-1. Aseprite でスプライトを**インデックスカラーモード**（Indexed Color）で作成する
-2. パレットを `rchr.pal` またはゲームの実際の NES パレットから設定する
-3. **ファイル → エクスポート** で PNG として書き出す（インデックスカラーのまま出力）
-4. r-chr でファイルを開き、貼り付け先タイルを選択する
-5. **ファイル → PNG をインポート…** または D&D でインポート → 「パレット照合」が自動選択される
-6. プレビューを確認して **貼り付け** を押す
+1. Create a sprite in **Indexed Color** mode in Aseprite
+2. Set the palette from `rchr.pal` or the game's actual NES palette
+3. **File → Export** as PNG (keeping indexed color mode)
+4. Open the file in r-chr and select the target tile
+5. **File → Import PNG…** or D&D to import → "Palette Match" is auto-selected
+6. Check the preview and press **Paste**
 
----
 
-#### インデックス直接
+#### Index Direct
 
-**自動選択条件**: インデックスカラー PNG かつ PLTE なし
-
-```
-ピクセルのインデックス値 mod 4 → CHR インデックス 0〜3
-```
-
-**用途**: パレット先頭 4 色（インデックス 0〜3）が CHR 0〜3 に対応するよう意図的に設定している場合。
-
----
-
-#### RGB 近似
-
-**自動選択条件**: フルカラー PNG（RGB / RGBA）
+**Auto-selected when**: Indexed color PNG without a PLTE chunk
 
 ```
-各ピクセルの RGB
-  → 現在の DAT パレットセット 4 色との RGB 距離を計算
-  → 最も近い色インデックス 0〜3 → CHR に書き込む
+Pixel index value mod 4 → CHR index 0–3
 ```
 
-**用途**: フルカラー PNG、スクリーンショット、BMP を変換した画像など任意の PNG。
-色の再現は近似のみ。DAT パレットを実際のゲームのパレットに合わせておくと精度が上がる。
+**Use case**: When the first 4 palette entries (indices 0–3) are intentionally mapped to CHR 0–3.
 
----
+#### RGB Approximate
 
-### 透明色の扱い
+**Auto-selected when**: Full color PNG (RGB / RGBA)
 
-PNG に透明色が含まれる場合（tRNS チャンク / アルファチャンネル）、透明ピクセルは自動的に **CHR インデックス 0** にマッピングされる。
+```
+Each pixel's RGB
+  → Calculate RGB distance to the 4 colors in the current DAT palette set
+  → Map to the closest color index 0–3 → write to CHR
+```
 
-| 形式 | 透明の判定条件 |
-|------|--------------|
-| インデックス PNG（tRNS あり） | tRNS でアルファ = 0 のパレットエントリ |
-| RGBA PNG | アルファ値 < 128 のピクセル |
+**Use case**: Full color PNGs, screenshots, images converted from BMP, or any arbitrary PNG.
+Color reproduction is approximate only. Accuracy improves when the DAT palette matches the game's actual palette.
 
-NES の CHR においてインデックス 0 は背景色（スプライトの抜き色）に対応するため、透明ピクセルを 0 にマッピングすることでスプライトの見た目が正しく設定される。透明ピクセルの件数はダイアログの警告欄に表示される。
 
----
+### Handling Transparency
+
+When a PNG contains transparent pixels (tRNS chunk / alpha channel), they are automatically mapped to **CHR index 0**.
+
+| Format | Transparency Condition |
+|--------|----------------------|
+| Indexed PNG (with tRNS) | Palette entries with alpha = 0 in tRNS |
+| RGBA PNG | Pixels with alpha value < 128 |
+
+In NES CHR, index 0 corresponds to the background color (transparent color for sprites), so mapping transparent pixels to 0 ensures the sprite appearance is set correctly. The count of transparent pixels is shown in the dialog's warning area.
 
 ## Undo
 
-すべての描画操作・PNG インポートは Undo に対応している。
+All drawing operations and PNG imports support Undo.
 
-| 操作 | Undo の単位 | 最大ステップ数 |
-|------|------------|--------------|
-| ドットエディタでの編集（ペン・ドラッグ） | ドラッグ 1 回分の全タイル変更 | 100 |
-| 線 / 矩形 / 楕円 / 塗りつぶし | 図形 1 つ分の全タイル変更 | 100 |
-| スタンプ | スタンプ 1 回分の全タイル変更 | 100 |
-| タイルペースト | ペースト 1 回分の全タイル変更 | 100 |
-| PNG インポート | 影響範囲の全タイルを一括 | 100 |
+| Operation | Undo Unit | Max Steps |
+|-----------|-----------|-----------|
+| Dot Editor editing (pencil, drag) | All tile changes in one drag stroke | 100 |
+| Line / Rectangle / Ellipse / Flood Fill | All tile changes for one shape | 100 |
+| Stamp | All tile changes in one stamp | 100 |
+| Tile Paste | All tile changes in one paste | 100 |
+| PNG Import | All affected tiles in one batch | 100 |
 
----
-
-## ファイル構成
+## File Structure
 
 ```
 src/
-  main.rs              — エントリポイント・ウィンドウ設定
-  native_menu.rs       — macOS ネイティブメニュー（muda クレート）
+  main.rs              — Entry point & window setup
+  native_menu.rs       — macOS native menu (muda crate)
   editor/
     mod.rs
-    app.rs             — アプリ状態定義・メインループ（eframe::App）
-    bank_view.rs       — バンクビュー（CHR 全体表示・タイル選択）
-    clipboard.rs       — タイルコピー & ペースト
-    dot_editor.rs      — ドットエディタ・10 種類の描画ツール
-    file_ops.rs        — ファイル開く / 保存 / 新規作成
-    info_panel.rs      — 右パネル（パレット・描画色・情報表示）
-    keyboard.rs        — キーボードショートカット処理
-    png_import.rs      — PNG インポートダイアログ
-    setup.rs           — フォント設定
-    theme.rs           — カラー・フォント・サイズ定数
+    app.rs             — App state & main loop (eframe::App)
+    bank_view.rs       — Bank View (full CHR display & tile selection)
+    clipboard.rs       — Tile copy & paste
+    dot_editor.rs      — Dot Editor & 10 drawing tools
+    file_ops.rs        — Open / Save / New file operations
+    info_panel.rs      — Right panel (palette, draw color, info display)
+    keyboard.rs        — Keyboard shortcut handling
+    png_import.rs      — PNG import dialog
+    setup.rs           — Font setup
+    theme.rs           — Color, font & size constants
     mac/
       mod.rs
-      menu_bar.rs      — egui メニューバー（非 macOS 用）
-      menu_events.rs   — macOS ネイティブメニューイベント処理
+      menu_bar.rs      — egui menu bar (non-macOS)
+      menu_events.rs   — macOS native menu event handling
   io/
     mod.rs
-    chr.rs             — CHR デコード / エンコード / レンダリング
-    nes.rs             — iNES フォーマットパーサ / RomData 型
-    png.rs             — PNG / BMP インポート（マッピング・CHR 書き込み）
+    chr.rs             — CHR decode / encode / rendering
+    nes.rs             — iNES format parser / RomData type
+    png.rs             — PNG / BMP import (mapping & CHR write)
   model/
     mod.rs
-    palette.rs         — NES パレット（MasterPalette / DatPalette）
+    palette.rs         — NES palette (MasterPalette / DatPalette)
 
 assets/
-  rchr.pal             — デフォルトマスターパレット（YY-CHR 互換 .pal）
-  rchr.dat             — デフォルトパレットセット（YY-CHR 互換 .dat）
-  rchr.bin             — 起動時表示用デフォルト CHR データ（R-CHR ロゴ）
-  nes.pal              — NES 標準 64 色パレット（リセット用）
-  icons/               — ツールバー・描画ツール用 SVG アイコン
+  rchr.pal             — Default master palette (YY-CHR compatible .pal)
+  rchr.dat             — Default palette sets (YY-CHR compatible .dat)
+  rchr.bin             — Default CHR data displayed on startup (R-CHR logo)
+  nes.pal              — NES standard 64-color palette (for reset)
+  icons/               — SVG icons for toolbar & drawing tools
 ```
 
-## 参考・謝辞
+## References & Credits
 
-本ツールは **[YY-CHR](https://www.geocities.ws/san_ma/yychr.html)** を参考に開発した。
-YY-CHR は定番の NES / SNES CHR エディタであり、インターフェースの基本設計や CHR フォーマットの取り扱いにあたって大いに参考にさせていただいた。
-
----
+This tool was developed with reference to **[YY-CHR](https://www.geocities.ws/san_ma/yychr.html)**.
+YY-CHR is a well-established NES / SNES CHR editor, and served as a major reference for the basic interface design and CHR format handling.
 
 ## License
 
