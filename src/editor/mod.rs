@@ -3,6 +3,7 @@ mod bank_view;
 mod clipboard;
 mod dot_editor;
 mod file_ops;
+pub mod i18n;
 mod info_panel;
 mod keyboard;
 mod mac;

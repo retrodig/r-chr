@@ -4,6 +4,7 @@ use crate::io::nes::RomData;
 use crate::model::palette::{DatPalette, MasterPalette};
 use super::bank_view::FocusSize;
 use super::dot_editor::EditorAction;
+use super::i18n::{self, Lang};
 use super::theme;
 use super::png_import::PngImportDialog;
 
@@ -89,6 +90,9 @@ pub struct RChrApp {
 
     /// タイルコピーバッファ: (n辺タイル数, n×n タイルの CHR バイト列)
     pub(super) tile_clipboard: Option<(usize, Vec<u8>)>,
+
+    /// 表示言語
+    pub(super) lang: Lang,
 }
 
 impl Default for RChrApp {
@@ -128,8 +132,14 @@ impl Default for RChrApp {
             dark_mode: true,
             show_about: false,
             tile_clipboard: None,
+            lang: Lang::Ja,
         }
     }
+}
+
+impl RChrApp {
+    /// 現在の言語の文字列セットを返すショートハンド
+    pub(super) fn t(&self) -> &'static i18n::Strings { i18n::t(self.lang) }
 }
 
 // ── メインループ ───────────────────────────────────────────────────
@@ -177,7 +187,7 @@ impl eframe::App for RChrApp {
                 #[cfg(target_os = "macos")]
                 let choice = {
                     use crate::native_menu::{unsaved_changes_dialog, UnsavedChoice};
-                    match unsaved_changes_dialog(&file_name) {
+                    match unsaved_changes_dialog(&file_name, self.lang) {
                         UnsavedChoice::Save    => 0,
                         UnsavedChoice::Discard => 1,
                         UnsavedChoice::Cancel  => 2,
@@ -187,10 +197,8 @@ impl eframe::App for RChrApp {
                 let choice = {
                     use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
                     let r = MessageDialog::new()
-                        .set_title("未保存の変更があります")
-                        .set_description(format!(
-                            "「{file_name}」への変更が保存されていません。\n終了する前に保存しますか？"
-                        ))
+                        .set_title(self.t().unsaved_title)
+                        .set_description(self.lang.fmt_unsaved_body(&file_name))
                         .set_buttons(MessageButtons::YesNoCancel)
                         .set_level(MessageLevel::Warning)
                         .show();
@@ -276,8 +284,8 @@ impl eframe::App for RChrApp {
             .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(egui::Margin::ZERO))
             .show(ctx, |ui| {
             if let Some(err) = self.error_msg.clone() {
-                ui.colored_label(egui::Color32::RED, format!("エラー: {err}"));
-                if ui.button("閉じる").clicked() {
+                ui.colored_label(egui::Color32::RED, format!("Error: {err}"));
+                if ui.button(self.t().close_btn.trim()).clicked() {
                     self.error_msg = None;
                 }
                 return;
@@ -285,7 +293,7 @@ impl eframe::App for RChrApp {
             match &self.rom {
                 None => {
                     ui.centered_and_justified(|ui| {
-                        ui.label("ファイルメニューから NES / BIN ファイルを開いてください");
+                        ui.label(self.t().no_file_hint);
                     });
                 }
                 Some(rom) => {
@@ -294,7 +302,7 @@ impl eframe::App for RChrApp {
                             ui.add_space(20.0);
                             ui.colored_label(
                                 egui::Color32::YELLOW,
-                                "この ROM は CHR-RAM を使用しています（CHR データなし）",
+                                self.t().chr_ram_note,
                             );
                         });
                         return;
@@ -335,7 +343,7 @@ impl eframe::App for RChrApp {
 
         // ── About ダイアログ
         if self.show_about {
-            egui::Window::new("R-CHR について")
+            egui::Window::new(self.t().about)
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -346,9 +354,9 @@ impl eframe::App for RChrApp {
                         ui.add_space(4.0);
                         ui.label(concat!("Version ", env!("CARGO_PKG_VERSION")));
                         ui.add_space(8.0);
-                        ui.label("NES CHR エディタ");
+                        ui.label(self.t().about_desc);
                         ui.add_space(12.0);
-                        if ui.button("  閉じる  ").clicked() {
+                        if ui.button(self.t().close_btn).clicked() {
                             self.show_about = false;
                         }
                         ui.add_space(8.0);

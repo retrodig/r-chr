@@ -4,6 +4,7 @@
 use crate::native_menu::{self, MenuAction};
 use crate::model::palette::MasterPalette;
 use super::super::app::{NES_PAL, RChrApp};
+use super::super::i18n::Lang;
 
 impl RChrApp {
     pub(in crate::editor) fn handle_native_menu(&mut self, ctx: &egui::Context) {
@@ -23,6 +24,10 @@ impl RChrApp {
                     self.dark_mode = v;
                     native_menu::set_app_appearance(v);
                 }
+                MenuAction::LangEnglish(en) => {
+                    self.lang = if en { Lang::En } else { Lang::Ja };
+                    native_menu::set_menu_lang(self.lang);
+                }
                 MenuAction::PaletteOpenPal  => self.load_pal_file(),
                 MenuAction::PaletteOpenDat  => self.load_dat_file(),
                 MenuAction::PaletteSaveDat  => self.save_dat_file(),
@@ -30,7 +35,7 @@ impl RChrApp {
                     self.master_palette = MasterPalette::from_pal_bytes(NES_PAL)
                         .unwrap_or_default();
                     self.texture_dirty = true;
-                    self.status_msg = Some("NES 標準パレットにリセットしました".into());
+                    self.status_msg = Some(self.t().status_pal_reset.into());
                 }
             }
         }
@@ -44,6 +49,7 @@ impl RChrApp {
             has_tile,
             has_tile && self.tile_clipboard.is_some(),
             self.dark_mode,
+            self.lang,
         );
     }
 }

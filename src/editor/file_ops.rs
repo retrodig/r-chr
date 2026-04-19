@@ -4,25 +4,23 @@ use super::app::RChrApp;
 
 // ── ZIP ユーティリティ ─────────────────────────────────────────────
 
-/// ZIP バイト列から最初の .nes ファイルを取り出す。
-/// 戻り値: (ファイル名, NES バイト列)
 fn extract_nes_from_zip(zip_data: &[u8]) -> Result<(String, Vec<u8>), String> {
     use std::io::Read;
     let cursor = std::io::Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("ZIP 読み込み失敗: {e}"))?;
+        .map_err(|e| format!("ZIP read failed: {e}"))?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)
-            .map_err(|e| format!("ZIP エントリ読み込み失敗: {e}"))?;
+            .map_err(|e| format!("ZIP entry read failed: {e}"))?;
         if entry.name().to_ascii_lowercase().ends_with(".nes") {
             let name = entry.name().to_string();
             let mut data = Vec::new();
             entry.read_to_end(&mut data)
-                .map_err(|e| format!("ZIP 展開失敗: {e}"))?;
+                .map_err(|e| format!("ZIP extract failed: {e}"))?;
             return Ok((name, data));
         }
     }
-    Err("ZIP 内に .nes ファイルが見つかりませんでした".into())
+    Err("no_nes_in_zip".into())   // i18n キーとして app 側で t() に変換
 }
 
 // ── ファイル操作 ───────────────────────────────────────────────────
@@ -45,9 +43,10 @@ impl RChrApp {
     }
 
     pub(super) fn open_file(&mut self) {
+        let t = self.t();
         let Some(path) = rfd::FileDialog::new()
             .add_filter("NES / BIN / ZIP", &["nes", "bin", "zip"])
-            .add_filter("すべてのファイル", &["*"])
+            .add_filter(t.filter_all, &["*"])
             .pick_file()
         else {
             return;
@@ -64,23 +63,24 @@ impl RChrApp {
 
         let data = match std::fs::read(path) {
             Err(e) => {
-                self.error_msg = Some(format!("読み込み失敗: {e}"));
+                self.error_msg = Some(format!("Load failed: {e}"));
                 return;
             }
             Ok(d) => d,
         };
 
-        // ZIP の場合: 内部の最初の .nes を取り出して処理
         let (nes_data, display_name, save_path) = if ext == "zip" {
             match extract_nes_from_zip(&data) {
                 Err(e) => {
-                    self.error_msg = Some(e);
+                    let msg = if e == "no_nes_in_zip" {
+                        self.t().err_zip_no_nes.to_string()
+                    } else {
+                        e
+                    };
+                    self.error_msg = Some(msg);
                     return;
                 }
-                Ok((inner_name, inner_data)) => {
-                    // ZIP から展開した場合は保存先が確定しないので file_path は None
-                    (inner_data, inner_name, None)
-                }
+                Ok((inner_name, inner_data)) => (inner_data, inner_name, None),
             }
         } else {
             (data, file_name, Some(path.to_path_buf()))
@@ -90,7 +90,7 @@ impl RChrApp {
             p.extension().and_then(|e| e.to_str()).map_or(false, |e| e.eq_ignore_ascii_case("bin"))
         }) || (ext == "bin") {
             if nes_data.is_empty() {
-                self.error_msg = Some("BIN ファイルが空です".into());
+                self.error_msg = Some(self.t().err_bin_empty.to_string());
                 return;
             }
             self.raw_file_data = None;
@@ -123,29 +123,27 @@ impl RChrApp {
 
     // ── 保存 ──────────────────────────────────────────────────────
 
-    /// 現在のパスに上書き保存する
     pub(super) fn save_file(&mut self) -> Result<(), String> {
-        let path = self.file_path.clone().ok_or("保存先パスがありません")?;
+        let path = self.file_path.clone().ok_or_else(|| self.t().err_no_save_path.to_string())?;
         self.write_to_path(&path)
     }
 
-    /// ダイアログで保存先を選んで保存する
     pub(super) fn save_file_as(&mut self) -> Result<(), String> {
+        let t = self.t();
         let is_bin = self.rom.as_ref().map_or(false, |r| !r.is_nes());
         let default_name = self.file_name.clone().unwrap_or_else(|| {
             if is_bin { "output.bin".into() } else { "output.nes".into() }
         });
         let mut dialog = rfd::FileDialog::new().set_file_name(&default_name);
         dialog = if is_bin {
-            dialog.add_filter("CHR バイナリ", &["bin"])
+            dialog.add_filter(t.filter_chr, &["bin"])
         } else {
             dialog.add_filter("NES ROM", &["nes"])
         };
         let Some(path) = dialog.save_file() else {
-            return Ok(()); // キャンセル
+            return Ok(());
         };
         self.write_to_path(&path)?;
-        // 保存先を新しいパスに更新
         self.file_name = Some(
             path.file_name().unwrap_or_default().to_string_lossy().to_string(),
         );
@@ -153,23 +151,23 @@ impl RChrApp {
         Ok(())
     }
 
-    /// CHR データをファイルへ出力する（NES: 元データに書き戻し / BIN: CHR データをそのまま書き出し）
     pub(super) fn write_to_path(&mut self, path: &std::path::Path) -> Result<(), String> {
-        let rom = self.rom.as_ref().ok_or("ROM が読み込まれていません")?;
+        let t = self.t();
+        let rom = self.rom.as_ref().ok_or(t.err_no_rom)?;
 
         match rom {
             RomData::Nes(nes_rom) => {
-                let raw = self.raw_file_data.as_mut().ok_or("元ファイルデータがありません")?;
+                let raw = self.raw_file_data.as_mut().ok_or(t.err_no_raw)?;
                 let start = nes_rom.chr_data_offset;
                 let end   = start + nes_rom.chr_rom.len();
                 if end > raw.len() {
-                    return Err("ファイルサイズが不正です".into());
+                    return Err(t.err_filesize.to_string());
                 }
                 raw[start..end].copy_from_slice(&nes_rom.chr_rom);
-                std::fs::write(path, raw as &[u8]).map_err(|e| format!("保存失敗: {e}"))?;
+                std::fs::write(path, raw as &[u8]).map_err(|e| format!("Save failed: {e}"))?;
             }
             RomData::Bin(chr_data) => {
-                std::fs::write(path, chr_data).map_err(|e| format!("保存失敗: {e}"))?;
+                std::fs::write(path, chr_data).map_err(|e| format!("Save failed: {e}"))?;
             }
         }
 
@@ -179,68 +177,64 @@ impl RChrApp {
 
     // ── PAL / DAT パレットファイル操作 ───────────────────────────
 
-    /// .pal ファイル（64色 × RGB 3バイト = 192バイト）を読み込む
     pub(super) fn load_pal_file(&mut self) {
+        let t = self.t();
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("NES パレット", &["pal"])
-            .add_filter("すべてのファイル", &["*"])
+            .add_filter(t.filter_pal, &["pal"])
+            .add_filter(t.filter_all, &["*"])
             .pick_file()
         else {
             return;
         };
         match std::fs::read(&path) {
             Err(e) => {
-                self.error_msg = Some(format!("読み込み失敗: {e}"));
+                self.error_msg = Some(format!("Load failed: {e}"));
             }
             Ok(data) => match MasterPalette::from_pal_bytes(&data) {
                 None => {
-                    self.error_msg = Some(
-                        format!("PAL ファイルが短すぎます（{}バイト、192バイト必要）", data.len())
-                    );
+                    self.error_msg = Some(self.lang.fmt_pal_too_short(data.len()));
                 }
                 Some(master) => {
                     self.master_palette = master;
                     self.texture_dirty = true;
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_msg = Some(format!("PAL 読み込み: {name}"));
+                    self.status_msg = Some(self.lang.fmt_pal_loaded(&name));
                 }
             },
         }
     }
 
-    /// .dat ファイル（4セット × 4色 = 16バイト以上）を読み込む
     pub(super) fn load_dat_file(&mut self) {
+        let t = self.t();
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("DAT パレット", &["dat"])
-            .add_filter("すべてのファイル", &["*"])
+            .add_filter(t.filter_dat, &["dat"])
+            .add_filter(t.filter_all, &["*"])
             .pick_file()
         else {
             return;
         };
         match std::fs::read(&path) {
             Err(e) => {
-                self.error_msg = Some(format!("読み込み失敗: {e}"));
+                self.error_msg = Some(format!("Load failed: {e}"));
             }
             Ok(data) => match DatPalette::from_dat_bytes(&data) {
                 None => {
-                    self.error_msg = Some(
-                        format!("DAT ファイルが短すぎます（{}バイト、16バイト必要）", data.len())
-                    );
+                    self.error_msg = Some(format!("DAT file too short ({} bytes, need 16)", data.len()));
                 }
                 Some(palette) => {
                     self.dat_palette = palette;
                     self.texture_dirty = true;
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.status_msg = Some(format!("DAT 読み込み: {name}"));
+                    self.status_msg = Some(self.lang.fmt_dat_loaded(&name));
                 }
             },
         }
     }
 
-    /// 現在の dat_palette を .dat ファイルとして保存する
     pub(super) fn save_dat_file(&mut self) {
+        let t = self.t();
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("DAT パレット", &["dat"])
+            .add_filter(t.filter_dat, &["dat"])
             .set_file_name("palette.dat")
             .save_file()
         else {
@@ -249,11 +243,11 @@ impl RChrApp {
         let bytes = self.dat_palette.to_dat_bytes();
         match std::fs::write(&path, &bytes) {
             Err(e) => {
-                self.error_msg = Some(format!("保存失敗: {e}"));
+                self.error_msg = Some(format!("Save failed: {e}"));
             }
             Ok(()) => {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
-                self.status_msg = Some(format!("DAT 保存: {name}"));
+                self.status_msg = Some(self.lang.fmt_dat_saved(&name));
             }
         }
     }

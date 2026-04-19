@@ -16,7 +16,7 @@ impl RChrApp {
         if let Some(rom) = &self.rom {
             if !rom.chr_data().is_empty() {
                 let total_tiles = rom.chr_data().len() / 16;
-                ui.label(format!("0x{:06X}  ({} タイル)", self.scroll_addr, total_tiles));
+                ui.label(self.lang.fmt_tile_addr(self.scroll_addr, total_tiles));
                 ui.separator();
             }
         }
@@ -24,7 +24,7 @@ impl RChrApp {
         ui.add_space(6.0);
         if let Some(idx) = self.selected_tile {
             ui.label(
-                theme::rich_label("タイル"),
+                theme::rich_label(self.t().tile),
             );
             ui.add_space(2.0);
             ui.label(format!("{}  (0x{:06X})", idx, idx * 16));
@@ -35,7 +35,7 @@ impl RChrApp {
         // 描画色セレクタ
         ui.add_space(4.0);
         ui.label(
-            theme::rich_label("描画色"),
+            theme::rich_label(self.t().drawing_color),
         );
         ui.add_space(10.0);
 
@@ -80,13 +80,13 @@ impl RChrApp {
         // NES パレット（常に表示）
         ui.add_space(4.0);
         ui.label(
-            theme::rich_label("NES パレット"),
+            theme::rich_label(self.t().nes_palette),
         );
 
         if let Some((set_idx, color_idx)) = self.editing_palette_cell {
-            ui.label(format!("セット #{set_idx}  色 {color_idx} を変更"));
+            ui.label(self.lang.fmt_palette_editing(set_idx, color_idx));
         } else {
-            ui.colored_label(egui::Color32::from_gray(140), "パレットの色をクリックして変更");
+            ui.colored_label(egui::Color32::from_gray(140), self.t().palette_click_hint);
         }
         ui.add_space(10.0);
 
@@ -132,7 +132,7 @@ impl RChrApp {
 
     fn show_palette_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            theme::rich_label("パレット"),
+            theme::rich_label(self.t().palette_section),
         );
         ui.add_space(6.0);
 
@@ -173,7 +173,7 @@ impl RChrApp {
                         }
                         let nes_idx = self.dat_palette.sets[set_idx][color_idx];
                         let clicked = resp.clicked();
-                        resp.on_hover_text(format!("NES 0x{nes_idx:02X}  クリックで変更"));
+                        resp.on_hover_text(self.lang.fmt_nes_hover(nes_idx as usize));
                         if clicked {
                             open_picker = Some((set_idx, color_idx));
                         }

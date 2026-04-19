@@ -41,9 +41,10 @@ impl PngImportDialog {
 impl RChrApp {
     /// メニューから PNG / BMP ファイルを選択して開く
     pub(super) fn open_png_import(&mut self) {
+        let t = self.t();
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("PNG / BMP 画像", &["png", "bmp"])
-            .add_filter("すべてのファイル", &["*"])
+            .add_filter(t.filter_png_bmp, &["png", "bmp"])
+            .add_filter(t.filter_all, &["*"])
             .pick_file()
         else {
             return;
@@ -54,12 +55,12 @@ impl RChrApp {
     /// パスを直接指定して画像インポートダイアログを開く（D&D 用）
     pub(super) fn open_png_import_from_path(&mut self, path: &std::path::Path) {
         if self.rom.is_none() {
-            self.error_msg = Some("先に NES / BIN ファイルを開いてください".into());
+            self.error_msg = Some(self.t().err_no_file_first.into());
             return;
         }
         let img_bytes = match std::fs::read(path) {
             Err(e) => {
-                self.error_msg = Some(format!("画像読み込み失敗: {e}"));
+                self.error_msg = Some(format!("Image load failed: {e}"));
                 return;
             }
             Ok(b) => b,
@@ -91,13 +92,17 @@ impl RChrApp {
             )
         };
         match result {
-            Err(e) => self.error_msg = Some(format!("変換失敗: {e}")),
+            Err(e) => self.error_msg = Some(format!("Conversion failed: {e}")),
             Ok(r) => self.png_import_dialog = Some(PngImportDialog::new(img_bytes, file_name, is_png, r)),
         }
     }
 
     /// PNG インポートダイアログを表示する
     pub(super) fn show_png_import_dialog(&mut self, ctx: &egui::Context) {
+        // t() / lang は &mut self.png_import_dialog を借用する前に取得する
+        let t = self.t();
+        let lang = self.lang;
+
         let dialog = match &mut self.png_import_dialog {
             Some(d) => d,
             None => return,
@@ -135,23 +140,22 @@ impl RChrApp {
         let mut do_close  = false;
         let mut new_strategy: Option<MappingStrategy> = None;
 
-        egui::Window::new("画像インポート")
+        egui::Window::new(t.img_import_title)
             .resizable(true)
             .min_width(360.0)
             .show(ctx, |ui| {
                 // ファイル情報
                 let tw = dialog.result.tile_width();
                 let th = dialog.result.tile_height();
-                ui.label(format!(
-                    "ファイル: {}  ({}×{} px = {}×{} タイル)",
-                    dialog.file_name,
-                    dialog.result.width, dialog.result.height,
-                    tw, th,
+                ui.label(lang.fmt_img_file(
+                    &dialog.file_name,
+                    dialog.result.width as u32, dialog.result.height as u32,
+                    tw as u32, th as u32,
                 ));
                 ui.add_space(6.0);
 
                 // マッピング戦略選択（BMP は RgbApprox のみ）
-                ui.label("マッピング戦略:");
+                ui.label(t.mapping_strategy);
                 ui.horizontal(|ui| {
                     for s in [MappingStrategy::PaletteMatch, MappingStrategy::IndexDirect, MappingStrategy::RgbApprox] {
                         let enabled = dialog.is_png || s == MappingStrategy::RgbApprox;
@@ -162,7 +166,7 @@ impl RChrApp {
                     }
                 });
                 if !dialog.is_png {
-                    ui.colored_label(egui::Color32::GRAY, "BMP はインデックスカラー情報がないため RGB 近似のみ使用できます");
+                    ui.colored_label(egui::Color32::GRAY, t.bmp_note);
                 }
                 ui.add_space(6.0);
 
@@ -175,7 +179,7 @@ impl RChrApp {
                 }
 
                 // プレビュー
-                ui.label("プレビュー（変換後）:");
+                ui.label(t.preview_label);
                 if let Some(tex) = &dialog.preview_texture {
                     let pw = (dialog.result.width  * 2).min(512) as f32;
                     let ph = (dialog.result.height * 2).min(512) as f32;
@@ -191,15 +195,15 @@ impl RChrApp {
 
                 // 貼り付け先情報
                 let dest_tile = self.selected_tile.unwrap_or(0);
-                ui.label(format!("貼り付け先: タイル {} (0x{:06X}) から", dest_tile, dest_tile * 16));
+                ui.label(lang.fmt_paste_at(dest_tile));
                 ui.add_space(8.0);
 
                 // ボタン行
                 ui.horizontal(|ui| {
-                    if ui.button("貼り付け").clicked() {
+                    if ui.button(t.paste_btn).clicked() {
                         do_import = true;
                     }
-                    if ui.button("キャンセル").clicked() {
+                    if ui.button(t.cancel_btn).clicked() {
                         do_close = true;
                     }
                 });
@@ -224,7 +228,7 @@ impl RChrApp {
                     dialog.preview_dirty = true;
                 }
                 Err(e) => {
-                    self.error_msg = Some(format!("変換失敗: {e}"));
+                    self.error_msg = Some(format!("Conversion failed: {e}"));
                 }
             }
         }
@@ -282,6 +286,6 @@ impl RChrApp {
 
         self.is_modified = true;
         self.texture_dirty = true;
-        self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", result_tw, result_th));
+        self.status_msg = Some(self.lang.fmt_png_done(result_tw, result_th));
     }
 }

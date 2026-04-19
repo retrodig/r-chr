@@ -112,7 +112,6 @@ Click the toolbar icons or use keyboard shortcuts to select tools.
 |--------|-------------|
 | Right-click | Eyedropper — sets the clicked pixel's color as the drawing color |
 
----
 
 ### Drawing Tools
 

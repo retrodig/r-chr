@@ -52,7 +52,7 @@ impl RChrApp {
                 let _ = ui.horizontal(|ui| {
                     // アドレスジャンプ入力
                     ui.label(
-                        theme::rich_label("アドレス"),
+                        theme::rich_label(self.t().address),
                     );
                     ui.visuals_mut().extreme_bg_color = theme::COL_INPUT_BG;
                     ui.visuals_mut().override_text_color = Some(theme::COL_TEXT);
@@ -79,7 +79,7 @@ impl RChrApp {
                         }
                         ui.add(
                             egui::Button::new(
-                                egui::RichText::new("移動")
+                                egui::RichText::new(self.t().go)
                                     .font(theme::font_small()),
                             )
                             .min_size(egui::vec2(46.0, 20.0)),

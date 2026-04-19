@@ -252,7 +252,7 @@ impl RChrApp {
 
         // ── タイルが未選択
         let Some(top_left_tile) = self.selected_tile else {
-            ui.label("← タイルをクリックして選択");
+            ui.label(self.t().click_tile_hint);
             return None;
         };
 

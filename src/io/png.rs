@@ -18,9 +18,9 @@ pub enum MappingStrategy {
 impl MappingStrategy {
     pub fn label(self) -> &'static str {
         match self {
-            Self::IndexDirect  => "インデックス直接 (mod 4)",
-            Self::PaletteMatch => "パレット照合 (推奨)",
-            Self::RgbApprox    => "RGB 近似",
+            Self::IndexDirect  => "Index Direct (mod 4)",
+            Self::PaletteMatch => "Palette Match (recommended)",
+            Self::RgbApprox    => "RGB Approximate",
         }
     }
 }
@@ -207,7 +207,7 @@ pub fn import_png(
         // ── インデックス直接 ──────────────────────────────────────
         MappingStrategy::IndexDirect => {
             if !meta.is_indexed {
-                return Err("インデックス直接モードはインデックスカラー PNG 専用です".into());
+                return Err("Index Direct mode requires an indexed-color PNG".into());
             }
 
             // 透明エントリを除いた実質的なインデックス最大値を確認
@@ -217,7 +217,7 @@ pub fn import_png(
                 .unwrap_or(0);
             if max_opaque_idx >= 4 {
                 warnings.push(format!(
-                    "インデックス値の最大が {} です。mod 4 で変換します。",
+                    "Max index value is {}; converting with mod 4.",
                     max_opaque_idx
                 ));
             }
@@ -235,17 +235,17 @@ pub fn import_png(
                 }
             }
             if transparent_count > 0 {
-                warnings.push(format!("透明ピクセル {} px → インデックス 0 に変換", transparent_count));
+                warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
             }
         }
 
         // ── パレット照合 ──────────────────────────────────────────
         MappingStrategy::PaletteMatch => {
             if !meta.is_indexed {
-                return Err("パレット照合モードはインデックスカラー PNG 専用です".into());
+                return Err("Palette Match mode requires an indexed-color PNG".into());
             }
             if meta.palette.is_empty() {
-                return Err("PLTE（パレット）チャンクが見つかりません".into());
+                return Err("No PLTE (palette) chunk found".into());
             }
 
             // PLTE の各エントリ → NES マスターパレット最近傍 → DAT セット色インデックス
@@ -286,11 +286,11 @@ pub fn import_png(
             }
 
             if transparent_entries > 0 {
-                warnings.push(format!("透明パレットエントリ {} 色 → インデックス 0 に変換", transparent_entries));
+                warnings.push(format!("{} transparent palette entry(s) → mapped to index 0", transparent_entries));
             }
             if unmatched_count > 0 {
                 warnings.push(format!(
-                    "{} 色がパレットに完全一致せず近似されました",
+                    "{} color(s) could not be exactly matched and were approximated",
                     unmatched_count
                 ));
             }
@@ -307,11 +307,11 @@ pub fn import_png(
         MappingStrategy::RgbApprox => {
             // image クレートで RGBA に展開（アルファチャンネルを保持するため）
             let img = image::load_from_memory(png_data)
-                .map_err(|e| format!("画像デコード失敗: {e}"))?
+                .map_err(|e| format!("Image decode failed: {e}"))?
                 .into_rgba8();
 
             if img.width() as usize != w || img.height() as usize != h {
-                return Err("画像サイズ不一致".into());
+                return Err("Image size mismatch".into());
             }
 
             let mut approx_count = 0usize;
@@ -333,11 +333,11 @@ pub fn import_png(
                 }
             }
             if transparent_count > 0 {
-                warnings.push(format!("透明ピクセル {} px → インデックス 0 に変換", transparent_count));
+                warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
             }
             if approx_count > 0 {
                 warnings.push(format!(
-                    "{} ピクセルが DAT パレット 4 色に完全一致せず近似されました",
+                    "{} pixel(s) approximated to the nearest DAT palette color",
                     approx_count
                 ));
             }
@@ -359,7 +359,7 @@ pub fn import_bmp(
     master: &MasterPalette,
 ) -> Result<PngImportResult, String> {
     let img = image::load_from_memory(bmp_data)
-        .map_err(|e| format!("BMP デコード失敗: {e}"))?
+        .map_err(|e| format!("BMP decode failed: {e}"))?
         .into_rgba8();
     let w = img.width() as usize;
     let h = img.height() as usize;
@@ -386,10 +386,10 @@ pub fn import_bmp(
 
     let mut warnings = Vec::new();
     if transparent_count > 0 {
-        warnings.push(format!("透明ピクセル {} px → インデックス 0 に変換", transparent_count));
+        warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
     }
     if approx_count > 0 {
-        warnings.push(format!("{} ピクセルが DAT パレット 4 色に完全一致せず近似されました", approx_count));
+        warnings.push(format!("{} pixel(s) approximated to the nearest DAT palette color", approx_count));
     }
     Ok(PngImportResult { width: w, height: h, pixels, strategy: MappingStrategy::RgbApprox, warnings })
 }
