@@ -17,6 +17,8 @@ impl RChrApp {
                 MenuAction::FileSave        => { if let Err(e) = self.save_file()    { self.error_msg = Some(e); } }
                 MenuAction::FileSaveAs      => { if let Err(e) = self.save_file_as() { self.error_msg = Some(e); } }
                 MenuAction::EditUndo        => self.do_undo(),
+                MenuAction::EditCopy        => self.copy_tiles(),
+                MenuAction::EditPaste       => self.paste_tiles(),
                 MenuAction::ViewDarkMode(v) => {
                     self.dark_mode = v;
                     native_menu::set_app_appearance(v);
@@ -34,9 +36,13 @@ impl RChrApp {
         }
 
         // enabled / checked 状態を毎フレーム同期
+        let has_tile = self.selected_tile.is_some()
+            && self.rom.as_ref().map_or(false, |r| !r.chr_data().is_empty());
         native_menu::sync_state(
             self.file_path.is_some() && self.is_modified,
             !self.undo_stack.is_empty(),
+            has_tile,
+            has_tile && self.tile_clipboard.is_some(),
             self.dark_mode,
         );
     }

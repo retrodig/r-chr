@@ -49,8 +49,8 @@ pub struct RChrApp {
     pub(super) drawing_color_idx: u8,
     /// 選択中の描画ツール（0=pencil, 1=pencil_pattern, ...）
     pub(super) drawing_tool: usize,
-    /// アンドゥスタック: (タイルのバイトオフセット, 変更前の 16バイト)
-    pub(super) undo_stack: Vec<(usize, [u8; 16])>,
+    /// アンドゥスタック: 1操作 = Vec<(バイトオフセット, 変更前16バイト)>
+    pub(super) undo_stack: Vec<Vec<(usize, [u8; 16])>>,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
     pub(super) file_path: Option<std::path::PathBuf>,
@@ -72,6 +72,9 @@ pub struct RChrApp {
 
     /// About ダイアログ表示フラグ
     pub(super) show_about: bool,
+
+    /// タイルコピーバッファ: (n辺タイル数, n×n タイルの CHR バイト列)
+    pub(super) tile_clipboard: Option<(usize, Vec<u8>)>,
 }
 
 impl Default for RChrApp {
@@ -103,6 +106,7 @@ impl Default for RChrApp {
             png_import_dialog: None,
             dark_mode: true,
             show_about: false,
+            tile_clipboard: None,
         }
     }
 }

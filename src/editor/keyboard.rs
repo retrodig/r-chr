@@ -9,6 +9,8 @@ impl RChrApp {
 
         let mut new_palette_set: Option<usize> = None;
         let mut do_undo = false;
+        let mut do_copy = false;
+        let mut do_paste = false;
         let mut do_save = false;
         let mut do_save_as = false;
         let mut d_col: i32 = 0; // 矢印キーによる列移動量（ブロック単位）
@@ -24,9 +26,17 @@ impl RChrApp {
             } else if i.key_pressed(egui::Key::Z) {
                 new_palette_set = Some(0);
             }
-            if i.key_pressed(egui::Key::X) { new_palette_set = Some(1); }
-            if i.key_pressed(egui::Key::C) { new_palette_set = Some(2); }
-            if i.key_pressed(egui::Key::V) { new_palette_set = Some(3); }
+            if cmd && i.key_pressed(egui::Key::C) {
+                do_copy = true;
+            } else if !cmd && i.key_pressed(egui::Key::C) {
+                new_palette_set = Some(2);
+            }
+            if cmd && i.key_pressed(egui::Key::V) {
+                do_paste = true;
+            } else if !cmd && i.key_pressed(egui::Key::V) {
+                new_palette_set = Some(3);
+            }
+            if !cmd && i.key_pressed(egui::Key::X) { new_palette_set = Some(1); }
 
             if cmd && i.key_pressed(egui::Key::S) {
                 if i.modifiers.shift { do_save_as = true; } else { do_save = true; }
@@ -43,7 +53,9 @@ impl RChrApp {
             self.selected_palette_set = set;
             self.texture_dirty = true;
         }
-        if do_undo { self.do_undo(); }
+        if do_undo  { self.do_undo(); }
+        if do_copy  { self.copy_tiles(); }
+        if do_paste { self.paste_tiles(); }
         if do_save {
             if let Err(e) = self.save_file() { self.error_msg = Some(e); }
         }

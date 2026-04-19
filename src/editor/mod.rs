@@ -1,5 +1,6 @@
 pub mod app;
 mod bank_view;
+mod clipboard;
 mod dot_editor;
 mod file_ops;
 mod info_panel;

@@ -214,7 +214,7 @@ impl RChrApp {
                     if self.undo_stack.len() >= 100 {
                         self.undo_stack.remove(0);
                     }
-                    self.undo_stack.push((tile_offset, saved));
+                    self.undo_stack.push(vec![(tile_offset, saved)]);
                 }
 
                 encode_dot(&mut rom.chr_data_mut()[tile_offset..tile_offset + 16], px, py, color);
@@ -252,11 +252,13 @@ impl RChrApp {
     }
 
     pub(super) fn do_undo(&mut self) {
-        let Some((offset, saved)) = self.undo_stack.pop() else { return };
+        let Some(batch) = self.undo_stack.pop() else { return };
         let Some(rom) = &mut self.rom else { return };
-        if offset + 16 <= rom.chr_data().len() {
-            rom.chr_data_mut()[offset..offset + 16].copy_from_slice(&saved);
-            self.texture_dirty = true;
+        for (offset, saved) in batch {
+            if offset + 16 <= rom.chr_data().len() {
+                rom.chr_data_mut()[offset..offset + 16].copy_from_slice(&saved);
+            }
         }
+        self.texture_dirty = true;
     }
 }

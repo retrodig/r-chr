@@ -256,18 +256,22 @@ impl RChrApp {
         let th = dialog.result.tile_height();
         let top_row = top_left_tile / 16;
         let top_col = top_left_tile % 16;
+        let mut batch: Vec<(usize, [u8; 16])> = Vec::new();
         for by in 0..th {
             for bx in 0..tw {
                 let tile_global = (top_row + by) * 16 + (top_col + bx);
                 let offset = tile_global * 16;
                 if offset + 16 <= chr_len {
                     let saved: [u8; 16] = rom.chr_data()[offset..offset + 16].try_into().unwrap();
-                    if self.undo_stack.len() >= 200 {
-                        self.undo_stack.remove(0);
-                    }
-                    self.undo_stack.push((offset, saved));
+                    batch.push((offset, saved));
                 }
             }
+        }
+        if !batch.is_empty() {
+            if self.undo_stack.len() >= 100 {
+                self.undo_stack.remove(0);
+            }
+            self.undo_stack.push(batch);
         }
 
         // CHR へ書き込み

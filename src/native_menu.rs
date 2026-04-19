@@ -21,6 +21,8 @@ pub enum MenuAction {
     FileSave,
     FileSaveAs,
     EditUndo,
+    EditCopy,
+    EditPaste,
     ViewDarkMode(bool),   // トグル後の値
     PaletteOpenPal,
     PaletteOpenDat,
@@ -38,6 +40,8 @@ struct MenuHandles {
     file_save:        MenuItem,
     file_save_as:     MenuItem,
     edit_undo:        MenuItem,
+    edit_copy:        MenuItem,
+    edit_paste:       MenuItem,
     view_dark_mode:   CheckMenuItem,
     palette_open_pal: MenuItem,
     palette_open_dat: MenuItem,
@@ -77,6 +81,8 @@ pub fn init() {
         file_save:        MenuItem::new("保存",            false, Some(Accelerator::new(Some(cmd),       Code::KeyS))),
         file_save_as:     MenuItem::new("別名で保存…",     true,  Some(Accelerator::new(Some(cmd_shift), Code::KeyS))),
         edit_undo:        MenuItem::new("元に戻す",         false, Some(Accelerator::new(Some(cmd),       Code::KeyZ))),
+        edit_copy:        MenuItem::new("タイルをコピー",   false, Some(Accelerator::new(Some(cmd),       Code::KeyC))),
+        edit_paste:       MenuItem::new("タイルをペースト", false, Some(Accelerator::new(Some(cmd),       Code::KeyV))),
         view_dark_mode:   CheckMenuItem::new("ダークモード", true, true, None),
         palette_open_pal: MenuItem::new("PAL ファイルを開く…",              true, None),
         palette_open_dat: MenuItem::new("DAT ファイルを開く…",              true, None),
@@ -97,6 +103,9 @@ pub fn init() {
     // ── 編集
     let edit = Submenu::new("編集", true);
     edit.append(&h.edit_undo).unwrap();
+    edit.append(&PredefinedMenuItem::separator()).unwrap();
+    edit.append(&h.edit_copy).unwrap();
+    edit.append(&h.edit_paste).unwrap();
 
     // ── 表示
     let view = Submenu::new("表示", true);
@@ -146,6 +155,8 @@ pub fn try_recv_action() -> Option<MenuAction> {
         else if id == h.file_save.id()        { Some(MenuAction::FileSave) }
         else if id == h.file_save_as.id()     { Some(MenuAction::FileSaveAs) }
         else if id == h.edit_undo.id()        { Some(MenuAction::EditUndo) }
+        else if id == h.edit_copy.id()        { Some(MenuAction::EditCopy) }
+        else if id == h.edit_paste.id()       { Some(MenuAction::EditPaste) }
         else if id == h.view_dark_mode.id()   { Some(MenuAction::ViewDarkMode(h.view_dark_mode.is_checked())) }
         else if id == h.palette_open_pal.id() { Some(MenuAction::PaletteOpenPal) }
         else if id == h.palette_open_dat.id() { Some(MenuAction::PaletteOpenDat) }
@@ -192,12 +203,14 @@ pub fn unsaved_changes_dialog(file_name: &str) -> UnsavedChoice {
 }
 
 /// enabled / checked 状態をアプリ側の状態に合わせて更新する。毎フレーム呼ぶ。
-pub fn sync_state(can_save: bool, can_undo: bool, dark_mode: bool) {
+pub fn sync_state(can_save: bool, can_undo: bool, can_copy: bool, can_paste: bool, dark_mode: bool) {
     HANDLES.with(|slot| {
         let borrow = slot.borrow();
         let Some(h) = borrow.as_ref() else { return };
         h.file_save.set_enabled(can_save);
         h.edit_undo.set_enabled(can_undo);
+        h.edit_copy.set_enabled(can_copy);
+        h.edit_paste.set_enabled(can_paste);
         if h.view_dark_mode.is_checked() != dark_mode {
             h.view_dark_mode.set_checked(dark_mode);
         }
