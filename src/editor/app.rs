@@ -242,10 +242,12 @@ impl eframe::App for RChrApp {
 
         // ── 中央パネル（ドットエディタ）
         let mut editor_action: Option<EditorAction> = None;
+        let dot_max_w = (ctx.screen_rect().width() - 245.0 - theme::BANK_VIEW_MIN_W).max(180.0);
         let dot_resp = egui::SidePanel::right("dot_editor_panel")
             .resizable(true)
             .default_width(420.0)
             .min_width(180.0)
+            .max_width(dot_max_w)
             .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::ZERO))
             .show(ctx, |ui| {
                 editor_action = self.show_dot_editor(ui);

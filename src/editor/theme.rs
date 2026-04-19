@@ -90,6 +90,9 @@ pub(super) const ICON_BTN_PX: f32 = 22.0;
 /// パネル左右パディング (px)
 pub(super) const PANEL_PADDING: f32 = 16.0;
 
+/// バンクビューの最低幅 (px)
+pub(super) const BANK_VIEW_MIN_W: f32 = 410.0;
+
 // ── 角丸半径 ───────────────────────────────────────────────────────
 
 /// スウォッチ・アイコンボタンの標準角丸半径
