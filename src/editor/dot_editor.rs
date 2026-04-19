@@ -210,21 +210,34 @@ impl RChrApp {
                 };
                 if tile_offset + 16 > chr_len { return }
 
+                // ペン（パターン）ツール: グローバルピクセル座標でチェッカーボードパリティを計算
+                let tile_global = tile_offset / 16;
+                let global_x = (tile_global % 16) * 8 + px;
+                let global_y = (tile_global / 16) * 8 + py;
+                let parity = ((global_x + global_y) % 2) as u8;
+
                 if push_undo {
-                    // ドラッグ開始 or クリック: 新規バッチを開始
+                    // ドラッグ開始 or クリック: 起点パリティを記録して新規バッチ開始
+                    self.drag_pattern_parity = parity;
                     self.drag_undo_tiles.clear();
                     let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
                         [tile_offset..tile_offset + 16].try_into().unwrap();
                     self.push_undo_batch(vec![(tile_offset, saved)]);
                     self.drag_undo_tiles.insert(tile_offset);
-                } else if !self.drag_undo_tiles.contains(&tile_offset) {
-                    // ドラッグ中に初めて触れたタイル: 現在バッチに追記
-                    let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
-                        [tile_offset..tile_offset + 16].try_into().unwrap();
-                    if let Some(batch) = self.undo_stack.last_mut() {
-                        batch.push((tile_offset, saved));
+                } else {
+                    // ペン（パターン）: 起点と異なるパリティのドットはスキップ
+                    if self.drawing_tool == 1 && parity != self.drag_pattern_parity {
+                        return;
                     }
-                    self.drag_undo_tiles.insert(tile_offset);
+                    // ドラッグ中に初めて触れたタイル: 現在バッチに追記
+                    if !self.drag_undo_tiles.contains(&tile_offset) {
+                        let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                            [tile_offset..tile_offset + 16].try_into().unwrap();
+                        if let Some(batch) = self.undo_stack.last_mut() {
+                            batch.push((tile_offset, saved));
+                        }
+                        self.drag_undo_tiles.insert(tile_offset);
+                    }
                 }
 
                 if let Some(rom) = &mut self.rom {

@@ -53,6 +53,8 @@ pub struct RChrApp {
     pub(super) undo_stack: Vec<Vec<(usize, [u8; 16])>>,
     /// 現在のドラッグ操作で既にアンドゥ保存済みのタイルオフセット集合
     pub(super) drag_undo_tiles: std::collections::HashSet<usize>,
+    /// ペン（パターン）ツールのドラッグ起点パリティ（(global_x + global_y) % 2）
+    pub(super) drag_pattern_parity: u8,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
     pub(super) file_path: Option<std::path::PathBuf>,
@@ -101,6 +103,7 @@ impl Default for RChrApp {
             drawing_tool: 0,
             undo_stack: Vec::new(),
             drag_undo_tiles: std::collections::HashSet::new(),
+            drag_pattern_parity: 0,
             file_path: None,
             raw_file_data: None,
             is_modified: false,
