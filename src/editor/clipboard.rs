@@ -49,12 +49,7 @@ impl RChrApp {
                     .copy_from_slice(&src[src_offset..src_offset + 16]);
             }
         }
-        if !batch.is_empty() {
-            if self.undo_stack.len() >= 100 {
-                self.undo_stack.remove(0);
-            }
-            self.undo_stack.push(batch);
-        }
+        self.push_undo_batch(batch);
         self.is_modified = true;
         self.texture_dirty = true;
         self.status_msg = Some(format!("ペースト: {}×{} タイル", n, n));

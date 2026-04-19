@@ -204,30 +204,32 @@ impl RChrApp {
                 self.drawing_color_idx = color_idx;
             }
             EditorAction::PaintDot { tile_offset, px, py, color, push_undo } => {
-                let Some(rom) = &mut self.rom else { return };
-                if tile_offset + 16 > rom.chr_data().len() { return }
+                let chr_len = match &self.rom {
+                    Some(r) => r.chr_data().len(),
+                    None => return,
+                };
+                if tile_offset + 16 > chr_len { return }
 
                 if push_undo {
                     // ドラッグ開始 or クリック: 新規バッチを開始
                     self.drag_undo_tiles.clear();
-                    let saved: [u8; 16] = rom.chr_data()[tile_offset..tile_offset + 16]
-                        .try_into().unwrap();
-                    if self.undo_stack.len() >= 100 {
-                        self.undo_stack.remove(0);
-                    }
-                    self.undo_stack.push(vec![(tile_offset, saved)]);
+                    let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                        [tile_offset..tile_offset + 16].try_into().unwrap();
+                    self.push_undo_batch(vec![(tile_offset, saved)]);
                     self.drag_undo_tiles.insert(tile_offset);
                 } else if !self.drag_undo_tiles.contains(&tile_offset) {
                     // ドラッグ中に初めて触れたタイル: 現在バッチに追記
-                    let saved: [u8; 16] = rom.chr_data()[tile_offset..tile_offset + 16]
-                        .try_into().unwrap();
+                    let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                        [tile_offset..tile_offset + 16].try_into().unwrap();
                     if let Some(batch) = self.undo_stack.last_mut() {
                         batch.push((tile_offset, saved));
                     }
                     self.drag_undo_tiles.insert(tile_offset);
                 }
 
-                encode_dot(&mut rom.chr_data_mut()[tile_offset..tile_offset + 16], px, py, color);
+                if let Some(rom) = &mut self.rom {
+                    encode_dot(&mut rom.chr_data_mut()[tile_offset..tile_offset + 16], px, py, color);
+                }
                 self.is_modified = true;
                 self.texture_dirty = true;
             }
@@ -259,6 +261,15 @@ impl RChrApp {
             Some(idx) => format!("{:06X}", idx * 16),
             None      => format!("{:06X}", self.scroll_addr),
         };
+    }
+
+    pub(super) fn push_undo_batch(&mut self, batch: Vec<(usize, [u8; 16])>) {
+        if batch.is_empty() { return; }
+        const UNDO_LIMIT: usize = 100;
+        if self.undo_stack.len() >= UNDO_LIMIT {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(batch);
     }
 
     pub(super) fn do_undo(&mut self) {

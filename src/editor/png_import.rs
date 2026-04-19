@@ -243,44 +243,45 @@ impl RChrApp {
 
     /// PNG インポート結果を CHR データに書き込む
     pub(super) fn apply_png_import(&mut self) {
-        let dialog = match &self.png_import_dialog {
-            Some(d) => d,
-            None => return,
-        };
-        let Some(rom) = &mut self.rom else { return };
+        if self.png_import_dialog.is_none() || self.rom.is_none() { return }
         let top_left_tile = self.selected_tile.unwrap_or(0);
-        let chr_len = rom.chr_data().len();
+        let chr_len = self.rom.as_ref().unwrap().chr_data().len();
 
-        // Undo 用: 影響範囲の全タイルを保存
-        let tw = dialog.result.tile_width();
-        let th = dialog.result.tile_height();
-        let top_row = top_left_tile / 16;
-        let top_col = top_left_tile % 16;
+        // Undo 用: 影響範囲の全タイルを保存（rom の借用を先に解放）
+        let (tw, th, top_row, top_col) = {
+            let d = self.png_import_dialog.as_ref().unwrap();
+            (d.result.tile_width(), d.result.tile_height(),
+             top_left_tile / 16, top_left_tile % 16)
+        };
         let mut batch: Vec<(usize, [u8; 16])> = Vec::new();
         for by in 0..th {
             for bx in 0..tw {
-                let tile_global = (top_row + by) * 16 + (top_col + bx);
-                let offset = tile_global * 16;
+                let offset = ((top_row + by) * 16 + (top_col + bx)) * 16;
                 if offset + 16 <= chr_len {
-                    let saved: [u8; 16] = rom.chr_data()[offset..offset + 16].try_into().unwrap();
+                    let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                        [offset..offset + 16].try_into().unwrap();
                     batch.push((offset, saved));
                 }
             }
         }
-        if !batch.is_empty() {
-            if self.undo_stack.len() >= 100 {
-                self.undo_stack.remove(0);
-            }
-            self.undo_stack.push(batch);
-        }
+        self.push_undo_batch(batch);
 
         // CHR へ書き込み
-        let result = &dialog.result;
-        crate::io::png::write_to_chr(rom.chr_data_mut(), result, top_left_tile, 16);
+        let result_tw = tw;
+        let result_th = th;
+        {
+            let dialog = self.png_import_dialog.as_ref().unwrap();
+            let result = &dialog.result;
+            crate::io::png::write_to_chr(
+                self.rom.as_mut().unwrap().chr_data_mut(),
+                result,
+                top_left_tile,
+                16,
+            );
+        }
 
         self.is_modified = true;
         self.texture_dirty = true;
-        let (tw, th) = (result.tile_width(), result.tile_height());
-        self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", tw, th));
+        self.status_msg = Some(format!("PNG インポート完了: {}×{} タイル", result_tw, result_th));
     }
 }
