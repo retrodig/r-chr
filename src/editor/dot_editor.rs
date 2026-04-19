@@ -112,6 +112,39 @@ fn ellipse_dots(sx: usize, sy: usize, ex: usize, ey: usize, fill: bool) -> Vec<(
     set.into_iter().collect()
 }
 
+/// 塗りつぶし: クリック点から同色の隣接ドットを BFS で収集
+fn flood_fill_dots(
+    block: &[Vec<u8>],
+    sx: usize, sy: usize,
+    block_px: usize,
+    top_row: usize, top_col: usize,
+    fill_color: u8, chr_len: usize,
+) -> Vec<(usize, usize, usize)> {
+    let target = block[sy][sx];
+    if target == fill_color { return vec![]; }
+    let mut visited = vec![vec![false; block_px]; block_px];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((sx, sy));
+    visited[sy][sx] = true;
+    let mut pixels = Vec::new();
+    while let Some((x, y)) = queue.pop_front() {
+        let off = ((top_row + y / 8) * 16 + (top_col + x / 8)) * 16;
+        if off + 16 <= chr_len {
+            pixels.push((off, x % 8, y % 8));
+        }
+        for (nx, ny) in [
+            (x + 1, y), (x.wrapping_sub(1), y),
+            (x, y + 1), (x, y.wrapping_sub(1)),
+        ] {
+            if nx < block_px && ny < block_px && !visited[ny][nx] && block[ny][nx] == target {
+                visited[ny][nx] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    pixels
+}
+
 /// ツール種別からドット座標列を生成（線・矩形・楕円共通）
 fn shape_dots(sx: usize, sy: usize, ex: usize, ey: usize, tool: usize) -> Vec<(usize, usize)> {
     match tool {
@@ -356,6 +389,23 @@ impl RChrApp {
             if response.clicked_by(egui::PointerButton::Primary) {
                 let pixels = vec![(tile_offset, dot_px, dot_py)];
                 return Some(EditorAction::ApplyLine { pixels });
+            }
+            return None;
+        }
+
+        // ── 塗りつぶしツール（tool=8）
+        if self.drawing_tool == 8 {
+            if response.clicked_by(egui::PointerButton::Primary) {
+                let top_col = top_left_tile % 16;
+                let top_row = top_left_tile / 16;
+                let pixels = flood_fill_dots(
+                    &block, px, py, block_px,
+                    top_row, top_col,
+                    self.drawing_color_idx, chr_len,
+                );
+                if !pixels.is_empty() {
+                    return Some(EditorAction::ApplyLine { pixels });
+                }
             }
             return None;
         }
