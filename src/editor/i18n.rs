@@ -49,13 +49,16 @@ pub struct Strings {
     pub click_tile_hint:    &'static str,
 
     // ── PNG インポートダイアログ ──
-    pub img_import_title:   &'static str,
-    pub mapping_strategy:   &'static str,
-    pub preview_label:      &'static str,
-    pub paste_btn:          &'static str,
-    pub cancel_btn:         &'static str,
-    pub bmp_note:           &'static str,
-    pub close_btn:          &'static str,
+    pub img_import_title:       &'static str,
+    pub mapping_strategy:       &'static str,
+    pub mapping_palette_match:  &'static str,
+    pub mapping_index_direct:   &'static str,
+    pub mapping_rgb_approx:     &'static str,
+    pub preview_label:          &'static str,
+    pub paste_btn:              &'static str,
+    pub cancel_btn:             &'static str,
+    pub bmp_note:               &'static str,
+    pub close_btn:              &'static str,
 
     // ── About ダイアログ ──
     pub about_desc:         &'static str,
@@ -130,13 +133,16 @@ static JA: Strings = Strings {
 
     click_tile_hint:    "← タイルをクリックして選択",
 
-    img_import_title:   "画像インポート",
-    mapping_strategy:   "マッピング戦略:",
-    preview_label:      "プレビュー（変換後）:",
-    paste_btn:          "貼り付け",
-    cancel_btn:         "キャンセル",
-    bmp_note:           "BMP はインデックスカラー情報がないため RGB 近似のみ使用できます",
-    close_btn:          "  閉じる  ",
+    img_import_title:       "画像インポート",
+    mapping_strategy:       "マッピング戦略:",
+    mapping_palette_match:  "パレット照合 (推奨)",
+    mapping_index_direct:   "インデックス直接 (mod 4)",
+    mapping_rgb_approx:     "RGB 近似",
+    preview_label:          "プレビュー（変換後）:",
+    paste_btn:              "貼り付け",
+    cancel_btn:             "キャンセル",
+    bmp_note:               "BMP はインデックスカラー情報がないため RGB 近似のみ使用できます",
+    close_btn:              "  閉じる  ",
 
     about_desc:         "NES CHR エディタ",
 
@@ -204,13 +210,16 @@ static EN: Strings = Strings {
 
     click_tile_hint:    "← Click a tile to select",
 
-    img_import_title:   "Import Image",
-    mapping_strategy:   "Mapping Strategy:",
-    preview_label:      "Preview (after conversion):",
-    paste_btn:          "Paste",
-    cancel_btn:         "Cancel",
-    bmp_note:           "BMP has no index color info — RGB Approximate only",
-    close_btn:          "  Close  ",
+    img_import_title:       "Import Image",
+    mapping_strategy:       "Mapping Strategy:",
+    mapping_palette_match:  "Palette Match (recommended)",
+    mapping_index_direct:   "Index Direct (mod 4)",
+    mapping_rgb_approx:     "RGB Approximate",
+    preview_label:          "Preview (after conversion):",
+    paste_btn:              "Paste",
+    cancel_btn:             "Cancel",
+    bmp_note:               "BMP has no index color info — RGB Approximate only",
+    close_btn:              "  Close  ",
 
     about_desc:         "NES CHR Editor",
 

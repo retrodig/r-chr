@@ -158,8 +158,13 @@ impl RChrApp {
                 ui.label(t.mapping_strategy);
                 ui.horizontal(|ui| {
                     for s in [MappingStrategy::PaletteMatch, MappingStrategy::IndexDirect, MappingStrategy::RgbApprox] {
+                        let label = match s {
+                            MappingStrategy::PaletteMatch => t.mapping_palette_match,
+                            MappingStrategy::IndexDirect  => t.mapping_index_direct,
+                            MappingStrategy::RgbApprox    => t.mapping_rgb_approx,
+                        };
                         let enabled = dialog.is_png || s == MappingStrategy::RgbApprox;
-                        let resp = ui.add_enabled(enabled, egui::RadioButton::new(dialog.strategy == s, s.label()));
+                        let resp = ui.add_enabled(enabled, egui::RadioButton::new(dialog.strategy == s, label));
                         if resp.clicked() && dialog.strategy != s {
                             new_strategy = Some(s);
                         }

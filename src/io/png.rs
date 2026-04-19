@@ -15,15 +15,6 @@ pub enum MappingStrategy {
     RgbApprox,
 }
 
-impl MappingStrategy {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::IndexDirect  => "Index Direct (mod 4)",
-            Self::PaletteMatch => "Palette Match (recommended)",
-            Self::RgbApprox    => "RGB Approximate",
-        }
-    }
-}
 
 // ── 警告型 ───────────────────────────────────────────────────────
 
