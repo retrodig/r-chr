@@ -25,6 +25,23 @@ impl MappingStrategy {
     }
 }
 
+// ── 警告型 ───────────────────────────────────────────────────────
+
+/// インポート時に発生した警告（言語非依存の構造体）
+#[derive(Debug, Clone)]
+pub enum PngWarning {
+    /// 透明ピクセルがインデックス 0 にマッピングされた（px 数）
+    TransparentPixels(usize),
+    /// 透明パレットエントリがインデックス 0 にマッピングされた（エントリ数）
+    TransparentPaletteEntries(usize),
+    /// パレット照合で近似された色数
+    ApproxColors(usize),
+    /// RGB 近似されたピクセル数
+    ApproxPixels(usize),
+    /// IndexDirect で最大インデックスが 3 を超えた
+    IndexMaxExceeded(u8),
+}
+
 // ── インポート結果 ────────────────────────────────────────────────
 
 pub struct PngImportResult {
@@ -36,8 +53,8 @@ pub struct PngImportResult {
     pub pixels: Vec<Vec<u8>>,
     /// 実際に使用したマッピング戦略
     pub strategy: MappingStrategy,
-    /// 警告メッセージ
-    pub warnings: Vec<String>,
+    /// 警告リスト（言語非依存）
+    pub warnings: Vec<PngWarning>,
 }
 
 impl PngImportResult {
@@ -179,7 +196,7 @@ pub fn import_png(
     let meta = read_png_meta(png_data)?;
     let w = meta.width as usize;
     let h = meta.height as usize;
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<PngWarning> = Vec::new();
 
     // 戦略を自動選択（ヒントがあればそれを使う）
     let strategy = match strategy_hint {
@@ -216,10 +233,7 @@ pub fn import_png(
                 .max()
                 .unwrap_or(0);
             if max_opaque_idx >= 4 {
-                warnings.push(format!(
-                    "Max index value is {}; converting with mod 4.",
-                    max_opaque_idx
-                ));
+                warnings.push(PngWarning::IndexMaxExceeded(max_opaque_idx));
             }
 
             let mut transparent_count = 0usize;
@@ -227,7 +241,7 @@ pub fn import_png(
                 for x in 0..w {
                     let idx = meta.raw_pixels[y * w + x] as usize;
                     if is_transparent_entry(idx) {
-                        pixels[y][x] = 0; // 透明 → CHR インデックス 0
+                        pixels[y][x] = 0;
                         transparent_count += 1;
                     } else {
                         pixels[y][x] = (idx % 4) as u8;
@@ -235,7 +249,7 @@ pub fn import_png(
                 }
             }
             if transparent_count > 0 {
-                warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
+                warnings.push(PngWarning::TransparentPixels(transparent_count));
             }
         }
 
@@ -286,13 +300,10 @@ pub fn import_png(
             }
 
             if transparent_entries > 0 {
-                warnings.push(format!("{} transparent palette entry(s) → mapped to index 0", transparent_entries));
+                warnings.push(PngWarning::TransparentPaletteEntries(transparent_entries));
             }
             if unmatched_count > 0 {
-                warnings.push(format!(
-                    "{} color(s) could not be exactly matched and were approximated",
-                    unmatched_count
-                ));
+                warnings.push(PngWarning::ApproxColors(unmatched_count));
             }
 
             for y in 0..h {
@@ -333,13 +344,10 @@ pub fn import_png(
                 }
             }
             if transparent_count > 0 {
-                warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
+                warnings.push(PngWarning::TransparentPixels(transparent_count));
             }
             if approx_count > 0 {
-                warnings.push(format!(
-                    "{} pixel(s) approximated to the nearest DAT palette color",
-                    approx_count
-                ));
+                warnings.push(PngWarning::ApproxPixels(approx_count));
             }
         }
     }
@@ -384,12 +392,12 @@ pub fn import_bmp(
         }
     }
 
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<PngWarning> = Vec::new();
     if transparent_count > 0 {
-        warnings.push(format!("{} transparent pixel(s) → mapped to index 0", transparent_count));
+        warnings.push(PngWarning::TransparentPixels(transparent_count));
     }
     if approx_count > 0 {
-        warnings.push(format!("{} pixel(s) approximated to the nearest DAT palette color", approx_count));
+        warnings.push(PngWarning::ApproxPixels(approx_count));
     }
     Ok(PngImportResult { width: w, height: h, pixels, strategy: MappingStrategy::RgbApprox, warnings })
 }

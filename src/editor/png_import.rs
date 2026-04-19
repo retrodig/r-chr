@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::io::png::{MappingStrategy, PngImportResult};
+use crate::io::png::{MappingStrategy, PngImportResult, PngWarning};
 use super::app::RChrApp;
 
 // ── PNG インポートダイアログ状態 ───────────────────────────────────
@@ -173,7 +173,14 @@ impl RChrApp {
                 // 警告表示
                 if !dialog.result.warnings.is_empty() {
                     for w in &dialog.result.warnings {
-                        ui.colored_label(egui::Color32::YELLOW, format!("⚠ {w}"));
+                        let msg = match w {
+                            PngWarning::TransparentPixels(n)       => lang.fmt_transparent_px(*n),
+                            PngWarning::TransparentPaletteEntries(n) => lang.fmt_transparent_pal(*n),
+                            PngWarning::ApproxColors(n)            => lang.fmt_approx_colors(*n),
+                            PngWarning::ApproxPixels(n)            => lang.fmt_approx_pixels(*n),
+                            PngWarning::IndexMaxExceeded(n)        => lang.fmt_idx_warn(*n),
+                        };
+                        ui.colored_label(egui::Color32::YELLOW, format!("⚠ {msg}"));
                     }
                     ui.add_space(4.0);
                 }
