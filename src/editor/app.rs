@@ -57,6 +57,14 @@ pub struct RChrApp {
     pub(super) drag_pattern_parity: u8,
     /// 線ツールのドラッグ起点（ブロック内ドット座標）
     pub(super) line_start_dot: Option<(usize, usize)>,
+    /// スタンプ Phase1: 選択ドラッグ起点
+    pub(super) stamp_sel_start: Option<(usize, usize)>,
+    /// スタンプ Phase2: 確定済み (w, h, pixels[h][w]) バッファ
+    pub(super) stamp_buffer: Option<(usize, usize, Vec<Vec<u8>>)>,
+    /// スタンプ Phase2: 現在の貼り付け位置（ブロック左上ドット座標）
+    pub(super) stamp_paste_pos: (usize, usize),
+    /// スタンプ Phase2: ドラッグ中のアンカーオフセット（ドラッグ開始点 - 貼り付け位置）
+    pub(super) stamp_drag_anchor: Option<(i32, i32)>,
 
     /// 開いているファイルのフルパス（上書き保存に使用）
     pub(super) file_path: Option<std::path::PathBuf>,
@@ -107,6 +115,10 @@ impl Default for RChrApp {
             drag_undo_tiles: std::collections::HashSet::new(),
             drag_pattern_parity: 0,
             line_start_dot: None,
+            stamp_sel_start: None,
+            stamp_buffer: None,
+            stamp_paste_pos: (0, 0),
+            stamp_drag_anchor: None,
             file_path: None,
             raw_file_data: None,
             is_modified: false,

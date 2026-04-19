@@ -16,9 +16,38 @@ pub(super) enum EditorAction {
     SelectDrawingColor { color_idx: u8 },
     /// 線ツール：確定したドット列 (tile_offset, px_in_tile, py_in_tile) を一括適用
     ApplyLine { pixels: Vec<(usize, usize, usize)> },
+    /// スタンプ：(tile_offset, px_in_tile, py_in_tile, color_idx) を一括適用
+    ApplyStamp { pixels: Vec<(usize, usize, usize, u8)> },
 }
 
 // ── ユーティリティ ────────────────────────────────────────────────
+
+/// 点線の矩形アウトラインを描画（白と暗色を交互に）
+fn draw_dashed_rect_outline(painter: &egui::Painter, r: egui::Rect, dash: f32) {
+    let edges = [
+        (r.left_top(),    r.right_top()),
+        (r.right_top(),   r.right_bottom()),
+        (r.right_bottom(),r.left_bottom()),
+        (r.left_bottom(), r.left_top()),
+    ];
+    for (p0, p1) in edges {
+        let dx = p1.x - p0.x;
+        let dy = p1.y - p0.y;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.1 { continue; }
+        let steps = (len / dash).ceil() as usize;
+        for i in 0..steps {
+            let t0 = (i as f32 * dash) / len;
+            let t1 = ((i as f32 + 1.0) * dash / len).min(1.0);
+            let color = if i % 2 == 0 { egui::Color32::WHITE } else { egui::Color32::from_black_alpha(200) };
+            painter.line_segment(
+                [egui::pos2(p0.x + dx * t0, p0.y + dy * t0),
+                 egui::pos2(p0.x + dx * t1, p0.y + dy * t1)],
+                egui::Stroke::new(1.5, color),
+            );
+        }
+    }
+}
 
 /// Bresenham の直線アルゴリズム（ドット座標リストを返す）
 fn bresenham(x0: usize, y0: usize, x1: usize, y1: usize) -> Vec<(usize, usize)> {
@@ -319,6 +348,127 @@ impl RChrApp {
             }
         }
 
+        // ── スタンプ Phase1: 選択範囲プレビュー
+        if self.drawing_tool == 9 {
+            if let Some((sx, sy)) = self.stamp_sel_start {
+                let cur = response.interact_pointer_pos().or_else(|| response.hover_pos());
+                if let Some(p) = cur {
+                    let rx = p.x - rect.left();
+                    let ry = p.y - rect.top();
+                    if rx >= 0.0 && ry >= 0.0 {
+                        let cx = ((rx / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let cy = ((ry / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let (x0, x1) = (sx.min(cx), sx.max(cx));
+                        let (y0, y1) = (sy.min(cy), sy.max(cy));
+                        draw_dashed_rect_outline(painter, egui::Rect::from_min_max(
+                            egui::pos2(rect.left() + x0 as f32 * dot_size, rect.top() + y0 as f32 * dot_size),
+                            egui::pos2(rect.left() + (x1 + 1) as f32 * dot_size, rect.top() + (y1 + 1) as f32 * dot_size),
+                        ), 4.0);
+                    }
+                }
+            }
+            // Phase2: スタンプ位置プレビュー（ドラッグ中に位置更新）
+            if self.stamp_buffer.is_some() && self.stamp_sel_start.is_none() {
+                if self.stamp_drag_anchor.is_some() {
+                    if let Some(p) = response.interact_pointer_pos() {
+                        let rx = p.x - rect.left();
+                        let ry = p.y - rect.top();
+                        if rx >= 0.0 && ry >= 0.0 {
+                            let cx = (rx / dot_size) as usize;
+                            let cy = (ry / dot_size) as usize;
+                            if let Some((ax, ay)) = self.stamp_drag_anchor {
+                                self.stamp_paste_pos = (
+                                    (cx as i32 - ax).max(0) as usize,
+                                    (cy as i32 - ay).max(0) as usize,
+                                );
+                            }
+                        }
+                    }
+                }
+                let (ppx, ppy) = self.stamp_paste_pos;
+                if let Some((sw, sh, pixels)) = &self.stamp_buffer {
+                    let (sw, sh) = (*sw, *sh);
+                    for row in 0..sh {
+                        for col in 0..sw {
+                            let bx = ppx + col;
+                            let by = ppy + row;
+                            if bx >= block_px || by >= block_px { continue; }
+                            let fill = self.dat_palette.color32(self.selected_palette_set, pixels[row][col] as usize, &self.master_palette);
+                            painter.rect_filled(egui::Rect::from_min_size(
+                                egui::pos2(rect.left() + bx as f32 * dot_size, rect.top() + by as f32 * dot_size),
+                                egui::vec2(dot_size, dot_size),
+                            ), 0.0, fill);
+                        }
+                    }
+                    draw_dashed_rect_outline(painter, egui::Rect::from_min_max(
+                        egui::pos2(rect.left() + ppx as f32 * dot_size, rect.top() + ppy as f32 * dot_size),
+                        egui::pos2(rect.left() + (ppx + sw) as f32 * dot_size, rect.top() + (ppy + sh) as f32 * dot_size),
+                    ), 4.0);
+                }
+            }
+        }
+
+        // ── スタンプ Phase1 ドラッグ終了: 選択確定
+        if self.drawing_tool == 9 && self.stamp_sel_start.is_some() {
+            let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+            if just_released {
+                let end = ui.ctx().input(|i| i.pointer.hover_pos());
+                let (sx, sy) = self.stamp_sel_start.take().unwrap();
+                let (ex, ey) = end.and_then(|p| {
+                    let rx = p.x - rect.left();
+                    let ry = p.y - rect.top();
+                    (rx >= 0.0 && ry >= 0.0).then(|| {
+                        let ex = ((rx / dot_size) as usize).min(block_px.saturating_sub(1));
+                        let ey = ((ry / dot_size) as usize).min(block_px.saturating_sub(1));
+                        (ex, ey)
+                    })
+                }).unwrap_or((sx, sy));
+                let (x0, x1) = (sx.min(ex), sx.max(ex));
+                let (y0, y1) = (sy.min(ey), sy.max(ey));
+                let w = x1 - x0 + 1;
+                let h = y1 - y0 + 1;
+                let pixels: Vec<Vec<u8>> = (y0..=y1)
+                    .map(|y| (x0..=x1).map(|x| block[y][x]).collect())
+                    .collect();
+                self.stamp_buffer = Some((w, h, pixels));
+                self.stamp_paste_pos = (x0, y0);
+                self.stamp_drag_anchor = None;
+                return None;
+            }
+        }
+
+        // ── スタンプ Phase2 ドラッグ終了: 貼り付け確定
+        if self.drawing_tool == 9
+            && self.stamp_buffer.is_some()
+            && self.stamp_sel_start.is_none()
+            && self.stamp_drag_anchor.is_some()
+        {
+            let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+            if just_released {
+                self.stamp_drag_anchor = None;
+                let (ppx, ppy) = self.stamp_paste_pos;
+                let top_col = top_left_tile % 16;
+                let top_row = top_left_tile / 16;
+                let stamp_pixels: Vec<(usize, usize, usize, u8)> = if let Some((sw, sh, pixels)) = &self.stamp_buffer {
+                    let (sw, sh) = (*sw, *sh);
+                    (0..sh).flat_map(|row| {
+                        let pixels_row = &pixels[row];
+                        (0..sw).filter_map(move |col| {
+                            let bx = ppx + col;
+                            let by = ppy + row;
+                            if bx >= block_px || by >= block_px { return None; }
+                            let off = ((top_row + by / 8) * 16 + (top_col + bx / 8)) * 16;
+                            if off + 16 > chr_len { return None; }
+                            Some((off, bx % 8, by % 8, pixels_row[col]))
+                        }).collect::<Vec<_>>()
+                    }).collect()
+                } else { vec![] };
+                if !stamp_pixels.is_empty() {
+                    return Some(EditorAction::ApplyStamp { pixels: stamp_pixels });
+                }
+            }
+        }
+
         // ── 線・矩形ツール: ドラッグ終了検出（tool=2-5）
         if matches!(self.drawing_tool, 2..=7) && self.line_start_dot.is_some() {
             let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
@@ -359,8 +509,14 @@ impl RChrApp {
         let py = (rel_y / dot_size) as usize;
         if px >= block_px || py >= block_px { return None }
 
-        // 右クリック → スポイト
+        // 右クリック → スタンプキャンセル優先、それ以外はスポイト
         if response.secondary_clicked() {
+            if self.drawing_tool == 9 && (self.stamp_buffer.is_some() || self.stamp_sel_start.is_some()) {
+                self.stamp_buffer = None;
+                self.stamp_sel_start = None;
+                self.stamp_drag_anchor = None;
+                return None;
+            }
             return Some(EditorAction::Eyedrop { color_idx: block[py][px] });
         }
 
@@ -389,6 +545,39 @@ impl RChrApp {
             if response.clicked_by(egui::PointerButton::Primary) {
                 let pixels = vec![(tile_offset, dot_px, dot_py)];
                 return Some(EditorAction::ApplyLine { pixels });
+            }
+            return None;
+        }
+
+        // ── スタンプツール（tool=9）
+        if self.drawing_tool == 9 {
+            // Phase2: ドラッグ開始 → アンカー記録（または新規選択開始）
+            if self.stamp_buffer.is_some() && self.stamp_sel_start.is_none() {
+                if response.drag_started_by(egui::PointerButton::Primary) {
+                    let (ppx, ppy) = self.stamp_paste_pos;
+                    self.stamp_drag_anchor = Some((px as i32 - ppx as i32, py as i32 - ppy as i32));
+                    return None;
+                }
+                if response.dragged_by(egui::PointerButton::Primary) {
+                    return None;
+                }
+                return None;
+            }
+            // Phase1: ドラッグ開始 → 選択開始
+            if response.drag_started_by(egui::PointerButton::Primary) {
+                self.stamp_sel_start = Some((px, py));
+                self.stamp_buffer = None;
+                return None;
+            }
+            if response.dragged_by(egui::PointerButton::Primary) {
+                return None;
+            }
+            // クリック（ドラッグなし）: 1×1 選択してバッファへ
+            if response.clicked_by(egui::PointerButton::Primary) {
+                let color = block[py][px];
+                self.stamp_buffer = Some((1, 1, vec![vec![color]]));
+                self.stamp_paste_pos = (px, py);
+                self.stamp_drag_anchor = None;
             }
             return None;
         }
@@ -439,6 +628,32 @@ impl RChrApp {
             }
             EditorAction::ApplyLine { pixels } => {
                 self.apply_line(pixels);
+            }
+            EditorAction::ApplyStamp { pixels } => {
+                if pixels.is_empty() { return; }
+                let chr_len = match &self.rom {
+                    Some(r) => r.chr_data().len(),
+                    None => return,
+                };
+                let mut seen = std::collections::HashSet::new();
+                let mut batch = Vec::new();
+                for &(off, _, _, _) in &pixels {
+                    if off + 16 <= chr_len && seen.insert(off) {
+                        let saved: [u8; 16] = self.rom.as_ref().unwrap().chr_data()
+                            [off..off + 16].try_into().unwrap();
+                        batch.push((off, saved));
+                    }
+                }
+                self.push_undo_batch(batch);
+                for (off, px, py, color) in pixels {
+                    if off + 16 <= chr_len {
+                        if let Some(rom) = &mut self.rom {
+                            encode_dot(&mut rom.chr_data_mut()[off..off + 16], px, py, color);
+                        }
+                    }
+                }
+                self.is_modified = true;
+                self.texture_dirty = true;
             }
             EditorAction::PaintDot { tile_offset, px, py, color, push_undo } => {
                 let chr_len = match &self.rom {
