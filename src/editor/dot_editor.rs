@@ -60,11 +60,65 @@ fn rect_dots(sx: usize, sy: usize, ex: usize, ey: usize, kind: usize) -> Vec<(us
     pts
 }
 
-/// ツール種別からドット座標列を生成（線・矩形共通）
+/// 楕円ドット生成（fill=false: 輪郭のみ / fill=true: 内部塗り）
+fn ellipse_dots(sx: usize, sy: usize, ex: usize, ey: usize, fill: bool) -> Vec<(usize, usize)> {
+    let (x0, x1) = (sx.min(ex) as i32, sx.max(ex) as i32);
+    let (y0, y1) = (sy.min(ey) as i32, sy.max(ey) as i32);
+    let cx = (x0 + x1) as f64 / 2.0;
+    let cy = (y0 + y1) as f64 / 2.0;
+    let rx = (x1 - x0) as f64 / 2.0;
+    let ry = (y1 - y0) as f64 / 2.0;
+    let rx2 = rx * rx;
+    let ry2 = ry * ry;
+    let mut set = std::collections::HashSet::new();
+
+    if fill {
+        // 各行の楕円内スキャンライン
+        for y in y0..=y1 {
+            let dy = y as f64 - cy;
+            let t = if ry > 0.0 { 1.0 - dy * dy / ry2 } else { if dy.abs() < 0.5 { 1.0 } else { -1.0 } };
+            if t < 0.0 { continue; }
+            let hw = if rx > 0.0 { (rx2 * t).sqrt() } else { 0.0 };
+            let xl = (cx - hw).ceil() as i32;
+            let xr = (cx + hw).floor() as i32;
+            for x in xl.max(x0)..=xr.min(x1) {
+                set.insert((x as usize, y as usize));
+            }
+        }
+    } else {
+        // 各行の左右端点
+        for y in y0..=y1 {
+            let dy = y as f64 - cy;
+            let t = if ry > 0.0 { 1.0 - dy * dy / ry2 } else { if dy.abs() < 0.5 { 1.0 } else { -1.0 } };
+            if t < 0.0 { continue; }
+            let hw = if rx > 0.0 { (rx2 * t).sqrt() } else { 0.0 };
+            let xl = (cx - hw).round() as i32;
+            let xr = (cx + hw).round() as i32;
+            if (x0..=x1).contains(&xl) { set.insert((xl as usize, y as usize)); }
+            if (x0..=x1).contains(&xr) { set.insert((xr as usize, y as usize)); }
+        }
+        // 各列の上下端点（隙間を埋める）
+        for x in x0..=x1 {
+            let dx = x as f64 - cx;
+            let t = if rx > 0.0 { 1.0 - dx * dx / rx2 } else { if dx.abs() < 0.5 { 1.0 } else { -1.0 } };
+            if t < 0.0 { continue; }
+            let hh = if ry > 0.0 { (ry2 * t).sqrt() } else { 0.0 };
+            let yt = (cy - hh).round() as i32;
+            let yb = (cy + hh).round() as i32;
+            if (y0..=y1).contains(&yt) { set.insert((x as usize, yt as usize)); }
+            if (y0..=y1).contains(&yb) { set.insert((x as usize, yb as usize)); }
+        }
+    }
+    set.into_iter().collect()
+}
+
+/// ツール種別からドット座標列を生成（線・矩形・楕円共通）
 fn shape_dots(sx: usize, sy: usize, ex: usize, ey: usize, tool: usize) -> Vec<(usize, usize)> {
     match tool {
         2 => bresenham(sx, sy, ex, ey),
         3 | 4 | 5 => rect_dots(sx, sy, ex, ey, tool),
+        6 => ellipse_dots(sx, sy, ex, ey, false),
+        7 => ellipse_dots(sx, sy, ex, ey, true),
         _ => vec![],
     }
 }
@@ -205,7 +259,7 @@ impl RChrApp {
         }
 
         // ── 線・矩形ツール: プレビュー描画（ドラッグ中、tool=2-5）
-        if matches!(self.drawing_tool, 2..=5) {
+        if matches!(self.drawing_tool, 2..=7) {
             if let Some((sx, sy)) = self.line_start_dot {
                 let cur = response.interact_pointer_pos().or_else(|| response.hover_pos());
                 if let Some(p) = cur {
@@ -233,7 +287,7 @@ impl RChrApp {
         }
 
         // ── 線・矩形ツール: ドラッグ終了検出（tool=2-5）
-        if matches!(self.drawing_tool, 2..=5) && self.line_start_dot.is_some() {
+        if matches!(self.drawing_tool, 2..=7) && self.line_start_dot.is_some() {
             let just_released = ui.ctx().input(|i| i.pointer.button_released(egui::PointerButton::Primary));
             if just_released {
                 let end = ui.ctx().input(|i| i.pointer.hover_pos());
@@ -290,7 +344,7 @@ impl RChrApp {
         if tile_offset + 16 > chr_len { return None; }
 
         // ── 線・矩形ツール: ドラッグ開始 / 中 / クリック（tool=2-5）
-        if matches!(self.drawing_tool, 2..=5) {
+        if matches!(self.drawing_tool, 2..=7) {
             if response.drag_started_by(egui::PointerButton::Primary) {
                 self.line_start_dot = Some((px, py));
                 return None;
