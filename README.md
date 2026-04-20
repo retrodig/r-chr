@@ -52,23 +52,7 @@ A confirmation dialog appears when you try to close the window.
 
 ## Layout
 
-```
-┌─────────────────┬──────────────────┬─────────────┐
-│  Menu Bar                                         │
-├─────────────────┼──────────────────┼─────────────┤
-│                 │  Toolbar         │             │
-│                 ├──────────────────┤             │
-│  Bank View      │                  │ Info Panel  │
-│                 │  Dot Editor      │             │
-│  Displays all   │                  │ Palette     │
-│  CHR data in    │  Enlarged view   │ Sets        │
-│  a vertical     │  of the selected │             │
-│  strip.         │  tile. Draw and  │ Draw Color  │
-│  Scroll to      │  edit with       │             │
-│  navigate.      │  drawing tools.  │             │
-│                 │                  │             │
-└─────────────────┴──────────────────┴─────────────┘
-```
+<img width="100%" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/r-chr-ss01-en.png">
 
 - **Bank View** (left): Minimum width 410px. Integer-scale zoom to fit window width
 - **Dot Editor** (center): Resizable. Minimum 180px
@@ -114,6 +98,8 @@ Click the toolbar icons or use keyboard shortcuts to select tools.
 
 
 ### Drawing Tools
+
+<img width="300" src="https://raw.githubusercontent.com/retrodig/r-chr/main/design/r-chr-toolbar.png">
 
 #### 🖊 Pencil
 
